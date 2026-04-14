@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import os
 import uuid
 
 import anthropic
-from dotenv import load_dotenv
-
-load_dotenv()
 
 
 class AgentClient:
@@ -27,9 +23,7 @@ class AgentClient:
         self.model = model
         self.system_prompt = system_prompt
         self.tools = tools or []
-        self._client = anthropic.Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY")
-        )
+        self._client = anthropic.Anthropic()
 
     def run(self, user_message: str) -> str:
         """Create a session, send user_message, stream response, return text."""
@@ -78,4 +72,9 @@ class AgentClient:
                 elif event.type == "session.status_terminated":
                     break
 
-        return "".join(text_parts)
+        result = "".join(text_parts)
+        if not result:
+            raise RuntimeError(
+                f"AgentClient.run() received no text from session {session.id!r}"
+            )
+        return result
