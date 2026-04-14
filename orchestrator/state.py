@@ -41,13 +41,20 @@ class Implementation(BaseModel):
     summary: str
 
 
-class GraphState(TypedDict, total=False):
+class _RequiredState(TypedDict):
     idea: str
+    revision_count: int
+    advisor_used: bool
+
+
+class _OptionalState(TypedDict, total=False):
     phase: Literal["planning", "implementation", "done", "failed"]
     plan: Optional[Plan]
     sprint_contract: Optional[SprintContract]
     implementation: Optional[Implementation]
     evaluation: Optional[EvaluationResult]
     advisor_memo: Optional[AdvisorMemo]
-    revision_count: int
-    advisor_used: bool
+
+
+class GraphState(_RequiredState, _OptionalState):
+    pass

@@ -80,3 +80,14 @@ def test_implementation_valid():
         summary="Implemented basic auth",
     )
     assert len(impl.files_written) == 2
+
+
+def test_graph_state_minimal():
+    from orchestrator.state import GraphState
+    state: GraphState = {
+        "idea": "build an API",
+        "revision_count": 0,
+        "advisor_used": False,
+    }
+    assert state["idea"] == "build an API"
+    assert state["revision_count"] == 0
