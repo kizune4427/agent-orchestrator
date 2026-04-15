@@ -4,6 +4,7 @@ from typing import Literal
 
 from langgraph.graph import END, StateGraph
 
+from orchestrator.config import RunConfig
 from orchestrator.nodes.advisor import advisor_node
 from orchestrator.nodes.evaluator import evaluator_node
 from orchestrator.nodes.generator import generator_node
@@ -45,8 +46,12 @@ def _set_implementation_phase(state: GraphState) -> dict:
     return {"phase": "implementation", "revision_count": 0}
 
 
-def build_graph():
-    """Build and compile the agent orchestrator LangGraph."""
+def build_graph(run_config: RunConfig | None = None):
+    """Build and compile the agent orchestrator LangGraph.
+
+    run_config is accepted for future use (parallel branch routing).
+    Currently the graph topology is the same regardless of run_config.
+    """
     builder = StateGraph(GraphState)
 
     # Register nodes
