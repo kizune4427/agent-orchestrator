@@ -94,3 +94,115 @@ def test_graph_has_expected_nodes():
     assert "evaluator" in node_names
     assert "advisor" in node_names
     assert "generator" in node_names
+
+
+# ---------------------------------------------------------------------------
+# End-to-end smoke tests (mocked nodes)
+# ---------------------------------------------------------------------------
+from unittest.mock import patch, MagicMock
+
+
+def test_graph_planning_pass_reaches_done():
+    """Smoke test: planner → evaluator (pass) → transition → generator → evaluator (pass) → done."""
+    from orchestrator.graph import build_graph
+    from orchestrator.state import (
+        Plan,
+        EvaluationResult,
+        SprintContract,
+        Task,
+        Implementation,
+    )
+    from orchestrator import graph as graph_module
+
+    approved_plan = Plan(
+        summary="Build a simple module",
+        steps=["Write module", "Write tests"],
+        open_questions=[],
+    )
+    eval_pass = EvaluationResult(verdict="pass", blockers=[], next_actions=[])
+    contract = SprintContract(
+        goal="Build a simple module",
+        tasks=[Task(id="T1", description="Write module", acceptance_criteria=["Done"])],
+        constraints=[],
+    )
+    impl = Implementation(files_written=["src/module.py"], summary="Module written")
+
+    def mock_planner(state):
+        return {"plan": approved_plan, "revision_count": 1}
+
+    def mock_evaluator(state):
+        updates = {"evaluation": eval_pass}
+        if state.get("phase") == "planning":
+            updates["sprint_contract"] = contract
+        return updates
+
+    def mock_generator(state):
+        return {"implementation": impl, "phase": "implementation", "revision_count": 1}
+
+    with (
+        patch.object(graph_module, "planner_node", mock_planner),
+        patch.object(graph_module, "evaluator_node", mock_evaluator),
+        patch.object(graph_module, "generator_node", mock_generator),
+    ):
+        g = graph_module.build_graph()
+        initial = {
+            "idea": "Build something",
+            "phase": "planning",
+            "revision_count": 0,
+            "advisor_used": False,
+            "plan": None,
+            "sprint_contract": None,
+            "implementation": None,
+            "evaluation": None,
+            "advisor_memo": None,
+        }
+        result = g.invoke(initial)
+
+    assert result["phase"] == "done"
+
+
+def test_graph_hard_stop_after_advisor():
+    """Smoke test: evaluator fails 3+ times with advisor used → phase=failed."""
+    from orchestrator.state import Plan, EvaluationResult, AdvisorMemo
+    from orchestrator import graph as graph_module
+
+    failing_plan = Plan(summary="Bad plan", steps=["Step 1"], open_questions=[])
+    eval_fail = EvaluationResult(verdict="fail", blockers=["issue"], next_actions=["fix"])
+    memo = AdvisorMemo(
+        analysis="root cause",
+        recommendations=["fix it"],
+        suggested_approach=None,
+    )
+
+    call_count = {"n": 0}
+
+    def mock_planner(state):
+        call_count["n"] += 1
+        return {"plan": failing_plan, "revision_count": state.get("revision_count", 0) + 1}
+
+    def mock_evaluator(state):
+        return {"evaluation": eval_fail}
+
+    def mock_advisor(state):
+        return {"advisor_memo": memo, "advisor_used": True, "revision_count": 0}
+
+    with (
+        patch.object(graph_module, "planner_node", mock_planner),
+        patch.object(graph_module, "evaluator_node", mock_evaluator),
+        patch.object(graph_module, "advisor_node", mock_advisor),
+    ):
+        g = graph_module.build_graph()
+        initial = {
+            "idea": "Bad idea",
+            "phase": "planning",
+            "revision_count": 0,
+            "advisor_used": False,
+            "plan": None,
+            "sprint_contract": None,
+            "implementation": None,
+            "evaluation": None,
+            "advisor_memo": None,
+        }
+        result = g.invoke(initial)
+
+    assert result["phase"] == "failed"
