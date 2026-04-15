@@ -26,6 +26,7 @@ def run(
     """Turn an idea into an implemented sprint via LangGraph + Claude."""
     from orchestrator.graph import build_graph
     from orchestrator.state import GraphState
+    from orchestrator.streaming import print_node_summary
 
     typer.echo(f"\nStarting orchestrator for: {idea!r}\n")
 
@@ -44,7 +45,11 @@ def run(
     }
 
     try:
-        final_state = graph.invoke(initial_state)
+        final_state = {}
+        for chunk in graph.stream(initial_state):
+            for node_name, state_delta in chunk.items():
+                print_node_summary(node_name, state_delta)
+                final_state.update(state_delta)
     except Exception as exc:
         typer.echo(f"\nOrchestrator failed with exception: {exc}", err=True)
         raise typer.Exit(code=1)
