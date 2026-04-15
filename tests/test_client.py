@@ -27,7 +27,7 @@ def _make_mock_anthropic(agent_text: str = '{"summary": "test"}'):
     # sessions.events.send (fire and forget)
     mock_client.beta.sessions.events.send.return_value = None
 
-    # sessions.stream — returns a context manager yielding events
+    # sessions.events.stream — returns a context manager yielding events
     mock_text_event = MagicMock()
     mock_text_event.type = "agent.message"
     mock_text_block = MagicMock()
@@ -48,7 +48,7 @@ def _make_mock_anthropic(agent_text: str = '{"summary": "test"}'):
     mock_stream_ctx = MagicMock()
     mock_stream_ctx.__enter__ = MagicMock(return_value=mock_stream)
     mock_stream_ctx.__exit__ = MagicMock(return_value=False)
-    mock_client.beta.sessions.stream.return_value = mock_stream_ctx
+    mock_client.beta.sessions.events.stream.return_value = mock_stream_ctx
 
     return mock_client
 
@@ -102,7 +102,7 @@ def test_agent_client_sends_message_and_streams():
     assert events[0]["content"][0]["text"] == "Evaluate this plan"
 
     # Stream was opened
-    mock_anthropic.beta.sessions.stream.assert_called_once()
+    mock_anthropic.beta.sessions.events.stream.assert_called_once()
 
 
 def test_agent_client_with_file_write_tools():
@@ -140,7 +140,7 @@ def test_agent_client_handles_session_terminated():
     mock_stream_ctx = MagicMock()
     mock_stream_ctx.__enter__ = MagicMock(return_value=mock_stream)
     mock_stream_ctx.__exit__ = MagicMock(return_value=False)
-    mock_anthropic.beta.sessions.stream.return_value = mock_stream_ctx
+    mock_anthropic.beta.sessions.events.stream.return_value = mock_stream_ctx
 
     with patch("orchestrator.agents.client.anthropic.Anthropic", return_value=mock_anthropic):
         client = AgentClient(name="X", model="m", system_prompt="s")
@@ -185,7 +185,7 @@ def test_agent_client_continues_on_requires_action():
     mock_stream_ctx = MagicMock()
     mock_stream_ctx.__enter__ = MagicMock(return_value=mock_stream)
     mock_stream_ctx.__exit__ = MagicMock(return_value=False)
-    mock_anthropic.beta.sessions.stream.return_value = mock_stream_ctx
+    mock_anthropic.beta.sessions.events.stream.return_value = mock_stream_ctx
 
     with patch("orchestrator.agents.client.anthropic.Anthropic", return_value=mock_anthropic):
         client = AgentClient(name="X", model="m", system_prompt="s")
@@ -205,7 +205,7 @@ def test_agent_client_raises_on_empty_response():
     mock_stream_ctx = MagicMock()
     mock_stream_ctx.__enter__ = MagicMock(return_value=mock_stream)
     mock_stream_ctx.__exit__ = MagicMock(return_value=False)
-    mock_anthropic.beta.sessions.stream.return_value = mock_stream_ctx
+    mock_anthropic.beta.sessions.events.stream.return_value = mock_stream_ctx
 
     with patch("orchestrator.agents.client.anthropic.Anthropic", return_value=mock_anthropic):
         client = AgentClient(name="X", model="m", system_prompt="s")

@@ -50,7 +50,7 @@ class AgentClient:
         # Stream-first: open stream, send message, collect response
         text_parts: list[str] = []
 
-        with self._client.beta.sessions.stream(session_id=session.id) as stream:
+        with self._client.beta.sessions.events.stream(session.id) as stream:
             self._client.beta.sessions.events.send(
                 session_id=session.id,
                 events=[
