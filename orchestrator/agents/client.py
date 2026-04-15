@@ -52,6 +52,7 @@ class AgentClient:
 
         # Stream-first: open stream, send message, collect response
         text_parts: list[str] = []
+        session_errors: list[str] = []
 
         with self._client.beta.sessions.events.stream(session.id) as stream:
             self._client.beta.sessions.events.send(
@@ -73,6 +74,11 @@ class AgentClient:
                     for block in event.content:
                         if block.type == "text":
                             text_parts.append(block.text)
+                elif event.type == "session.error":
+                    msg = getattr(event.error, "message", str(event.error))
+                    if _DEBUG:
+                        print(f"[DEBUG]   session.error: {msg!r}", flush=True)
+                    session_errors.append(msg)
                 elif event.type == "session.status_idle":
                     if _DEBUG:
                         print(f"[DEBUG]   stop_reason.type={event.stop_reason.type!r}", flush=True)
@@ -83,6 +89,10 @@ class AgentClient:
 
         result = "".join(text_parts)
         if not result:
+            if session_errors:
+                raise RuntimeError(
+                    f"Session {session.id!r} failed with error: {session_errors[0]}"
+                )
             raise RuntimeError(
                 f"AgentClient.run() received no text from session {session.id!r}"
             )
