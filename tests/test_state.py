@@ -91,3 +91,33 @@ def test_graph_state_minimal():
     }
     assert state["idea"] == "build an API"
     assert state["revision_count"] == 0
+
+
+def test_graph_state_accepts_run_config():
+    from orchestrator.config import RunConfig
+    from orchestrator.state import GraphState
+
+    cfg = RunConfig(run_id="test-id")
+    state: GraphState = {
+        "idea": "test",
+        "revision_count": 0,
+        "advisor_used": False,
+        "run_config": cfg,
+    }
+    assert state["run_config"].run_id == "test-id"
+
+
+def test_path_spec_model():
+    from orchestrator.state import PathSpec
+    spec = PathSpec(name="event-driven", focus="Use events for decoupling")
+    assert spec.name == "event-driven"
+
+
+def test_branch_result_model():
+    from orchestrator.state import BranchResult, Plan, EvaluationResult, PathSpec
+    br = BranchResult(
+        name="event-driven",
+        plan=Plan(summary="s", steps=["s1"], open_questions=[]),
+        evaluation=EvaluationResult(verdict="pass", blockers=[], next_actions=[]),
+    )
+    assert br.name == "event-driven"

@@ -5,6 +5,8 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
+from orchestrator.config import RunConfig
+
 
 class Plan(BaseModel):
     summary: str
@@ -41,6 +43,17 @@ class Implementation(BaseModel):
     summary: str
 
 
+class PathSpec(BaseModel):
+    name: str
+    focus: str
+
+
+class BranchResult(BaseModel):
+    name: str
+    plan: Plan
+    evaluation: EvaluationResult
+
+
 class _RequiredState(TypedDict):
     idea: str
     revision_count: int
@@ -54,6 +67,8 @@ class _OptionalState(TypedDict, total=False):
     implementation: Optional[Implementation]
     evaluation: Optional[EvaluationResult]
     advisor_memo: Optional[AdvisorMemo]
+    run_config: "RunConfig"
+    branches: list[BranchResult]
 
 
 class GraphState(_RequiredState, _OptionalState):
