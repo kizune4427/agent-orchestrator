@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 import uuid
 
 import anthropic
+
+_DEBUG = os.environ.get("ORCHESTRATOR_DEBUG", "").lower() in ("1", "true", "yes")
 
 
 class AgentClient:
@@ -62,11 +65,17 @@ class AgentClient:
             )
 
             for event in stream:
+                if _DEBUG:
+                    print(f"[DEBUG] event.type={event.type!r}", flush=True)
                 if event.type == "agent.message":
+                    if _DEBUG:
+                        print(f"[DEBUG]   content blocks: {[b.type for b in event.content]}", flush=True)
                     for block in event.content:
                         if block.type == "text":
                             text_parts.append(block.text)
                 elif event.type == "session.status_idle":
+                    if _DEBUG:
+                        print(f"[DEBUG]   stop_reason.type={event.stop_reason.type!r}", flush=True)
                     if event.stop_reason.type != "requires_action":
                         break
                 elif event.type == "session.status_terminated":
