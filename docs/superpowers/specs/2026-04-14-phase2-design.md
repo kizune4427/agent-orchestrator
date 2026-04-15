@@ -114,14 +114,17 @@ def make_client(
 
 Each node calls `make_client(role, state["run_config"], SYSTEM_PROMPT)` instead of constructing `AgentClient` directly.
 
-### CLI flags
-```
---backend anthropic|openrouter   (env: LLM_BACKEND)
---planner-model MODEL
---evaluator-model MODEL
---advisor-model MODEL
---generator-model MODEL
-```
+### CLI flags and env vars
+
+CLI flags take precedence over env vars; env vars take precedence over defaults.
+
+| CLI flag | Env var | Default |
+|----------|---------|---------|
+| `--backend` | `LLM_BACKEND` | `anthropic` |
+| `--planner-model` | `PLANNER_MODEL` | `claude-sonnet-4-6` |
+| `--evaluator-model` | `EVALUATOR_MODEL` | `claude-sonnet-4-6` |
+| `--advisor-model` | `ADVISOR_MODEL` | `claude-opus-4-6` |
+| `--generator-model` | `GENERATOR_MODEL` | `claude-sonnet-4-6` |
 
 ---
 
