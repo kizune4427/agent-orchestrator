@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 from pydantic import ValidationError
 
 from orchestrator.agents.factory import make_client
 from orchestrator.history import artifact_dir
-from orchestrator.state import GraphState, Plan
+from orchestrator.state import GraphState, PathSpec, Plan
 
 _SYSTEM_PROMPT = """\
 You are a planning agent for a software development workflow.
@@ -76,11 +77,77 @@ def _persist_plan(plan: Plan, revision: int, run_id: str) -> None:
     path.write_text(content)
 
 
+_PATH_DECIDER_PROMPT = """\
+You are a planning strategist. Given a software idea, identify 2-4 distinct implementation
+paths worth exploring. Each path should represent a meaningfully different architectural or
+design direction.
+
+IMPORTANT: Respond ONLY with valid JSON — a list of path specs:
+[
+  {"name": "<short name>", "focus": "<one sentence describing this path's key angle>"},
+  ...
+]
+"""
+
+
+def plan_paths(state: GraphState) -> list[PathSpec]:
+    """Stage 1: Ask the planner to enumerate exploration paths. Returns PathSpec list."""
+    run_config = state["run_config"]
+    client = make_client("planner", run_config, _PATH_DECIDER_PROMPT)
+    message = f"Idea: {state['idea']}"
+    response = client.run(message)
+    text = response.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    data = json.loads(text)
+    return [PathSpec.model_validate(item) for item in data]
+
+
+def run_branch(state: GraphState, spec: PathSpec) -> "Plan":
+    """Stage 2: Run a single planner branch seeded with a PathSpec focus."""
+    run_config = state["run_config"]
+    system = _SYSTEM_PROMPT + f"\n\nExploration angle: {spec.name} — {spec.focus}"
+    client = make_client("planner", run_config, system)
+    message = _build_message(state) + f"\n\nPath focus: {spec.name} — {spec.focus}"
+    response = client.run(message)
+    return _parse_plan(response)
+
+
 def planner_node(state: GraphState) -> dict:
     run_config = state["run_config"]
+    revision = state.get("revision_count", 0) + 1
+
+    if run_config.parallel and not state.get("branches"):
+        # Parallel mode: Stage 1 — get path specs, Stage 2 — run branches concurrently
+        specs = plan_paths(state)
+
+        async def _run_all() -> list:
+            loop = asyncio.get_running_loop()
+            tasks = [
+                loop.run_in_executor(None, run_branch, state, spec)
+                for spec in specs
+            ]
+            return await asyncio.gather(*tasks)
+
+        plans = asyncio.run(_run_all())
+
+        from orchestrator.state import BranchResult, EvaluationResult
+        # Wrap as BranchResult with placeholder evaluations (selector_node will evaluate)
+        branches = [
+            BranchResult(
+                name=spec.name,
+                plan=plan,
+                evaluation=EvaluationResult(verdict="pass", blockers=[], next_actions=[]),
+            )
+            for spec, plan in zip(specs, plans)
+        ]
+        _persist_plan(plans[0], revision, run_config.run_id)
+        return {"plan": plans[0], "revision_count": revision, "branches": branches}
+
+    # Standard single-branch mode
     client = make_client("planner", run_config, _SYSTEM_PROMPT)
     message = _build_message(state)
-    revision = state.get("revision_count", 0) + 1
 
     response = client.run(message)
     try:

@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from orchestrator.agents.factory import make_client
 from orchestrator.history import artifact_dir
-from orchestrator.state import EvaluationResult, GraphState, SprintContract, Task
+from orchestrator.state import BranchResult, EvaluationResult, GraphState, SprintContract, Task
 
 _PLANNING_SYSTEM_PROMPT = """\
 You are an evaluation agent reviewing a software development plan.
@@ -103,6 +103,69 @@ def _persist_eval(result: EvaluationResult, phase: str, revision: int, run_id: s
     adir.mkdir(parents=True, exist_ok=True)
     path = adir / f"eval_{phase}_v{revision}.json"
     path.write_text(result.model_dump_json(indent=2))
+
+
+_SELECTOR_SYSTEM_PROMPT = """\
+You are an evaluator selecting the best implementation plan from multiple candidates.
+Given a list of (name, plan, evaluation) tuples, pick the plan most likely to succeed.
+
+IMPORTANT: Respond ONLY with valid JSON:
+{"selected": "<name of the chosen path>"}
+"""
+
+
+def selector_node(state: GraphState) -> dict:
+    """Select the best branch when parallel mode produced multiple plans."""
+    run_config = state["run_config"]
+    branches: list[BranchResult] = state.get("branches", [])
+
+    if len(branches) <= 1:
+        # Nothing to select — return as-is
+        if branches:
+            return {"plan": branches[0].plan, "branches": branches}
+        return {}
+
+    client = make_client("evaluator", run_config, _SELECTOR_SYSTEM_PROMPT)
+
+    candidates = []
+    for br in branches:
+        candidates.append(
+            f"Name: {br.name}\n"
+            f"Summary: {br.plan.summary}\n"
+            f"Steps: {len(br.plan.steps)}\n"
+            f"Evaluation: {br.evaluation.verdict}"
+        )
+    message = "Candidates:\n\n" + "\n\n---\n\n".join(candidates)
+
+    response = client.run(message)
+    text = response.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+    data = json.loads(text)
+    selected_name = data["selected"]
+
+    selected_branch = next(
+        (br for br in branches if br.name == selected_name),
+        branches[0],  # fallback to first if name not found
+    )
+
+    # Persist losing branches
+    adir = artifact_dir(run_config.run_id)
+    adir.mkdir(parents=True, exist_ok=True)
+    losers = [br for br in branches if br.name != selected_branch.name]
+    branches_log = [
+        {
+            "name": br.name,
+            "plan": br.plan.model_dump(),
+            "evaluation": br.evaluation.model_dump(),
+        }
+        for br in losers
+    ]
+    (adir / "branches.json").write_text(json.dumps(branches_log, indent=2))
+
+    return {"plan": selected_branch.plan, "branches": branches}
 
 
 def evaluator_node(state: GraphState) -> dict:

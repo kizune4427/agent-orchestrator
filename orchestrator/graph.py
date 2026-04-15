@@ -6,7 +6,7 @@ from langgraph.graph import END, StateGraph
 
 from orchestrator.config import RunConfig
 from orchestrator.nodes.advisor import advisor_node
-from orchestrator.nodes.evaluator import evaluator_node
+from orchestrator.nodes.evaluator import evaluator_node, selector_node
 from orchestrator.nodes.generator import generator_node
 from orchestrator.nodes.planner import planner_node
 from orchestrator.state import GraphState
@@ -47,14 +47,9 @@ def _set_implementation_phase(state: GraphState) -> dict:
 
 
 def build_graph(run_config: RunConfig | None = None):
-    """Build and compile the agent orchestrator LangGraph.
-
-    run_config is accepted for future use (parallel branch routing).
-    Currently the graph topology is the same regardless of run_config.
-    """
+    """Build and compile the agent orchestrator LangGraph."""
     builder = StateGraph(GraphState)
 
-    # Register nodes
     builder.add_node("planner", planner_node)
     builder.add_node("evaluator", evaluator_node)
     builder.add_node("advisor", advisor_node)
@@ -63,13 +58,15 @@ def build_graph(run_config: RunConfig | None = None):
     builder.add_node("mark_done", _mark_done)
     builder.add_node("mark_failed", _mark_failed)
 
-    # Entry point
-    builder.set_entry_point("planner")
+    if run_config and run_config.parallel:
+        builder.add_node("selector", selector_node)
+        builder.set_entry_point("planner")
+        builder.add_edge("planner", "selector")
+        builder.add_edge("selector", "evaluator")
+    else:
+        builder.set_entry_point("planner")
+        builder.add_edge("planner", "evaluator")
 
-    # Planner → Evaluator
-    builder.add_edge("planner", "evaluator")
-
-    # Evaluator → conditional routing
     builder.add_conditional_edges(
         "evaluator",
         route_after_evaluator,
@@ -82,7 +79,6 @@ def build_graph(run_config: RunConfig | None = None):
         },
     )
 
-    # Transitions
     builder.add_edge("transition_to_impl", "generator")
     builder.add_edge("advisor", "planner")
     builder.add_edge("generator", "evaluator")

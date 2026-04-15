@@ -436,3 +436,119 @@ def test_generator_node_returns_implementation(tmp_path):
     assert "implementation" in result
     assert isinstance(result["implementation"], Implementation)
     assert any("src/main.py" in p for p in result["implementation"].files_written)
+
+
+def test_planner_node_returns_path_specs_when_parallel(tmp_path):
+    """When run_config.parallel=True, first call returns PathSpec list."""
+    from orchestrator.nodes.planner import plan_paths
+    from orchestrator.state import PathSpec
+
+    path_specs_json = json.dumps([
+        {"name": "event-driven", "focus": "Use events for decoupling"},
+        {"name": "monolith-first", "focus": "Simple monolith to start"},
+    ])
+    mock_client = _make_client_mock(path_specs_json)
+
+    cfg = RunConfig(run_id="test-run", parallel=True)
+    state: GraphState = {
+        "idea": "Build a REST API",
+        "phase": "planning",
+        "revision_count": 0,
+        "advisor_used": False,
+        "plan": None,
+        "sprint_contract": None,
+        "implementation": None,
+        "evaluation": None,
+        "advisor_memo": None,
+        "run_config": cfg,
+    }
+
+    with patch("orchestrator.nodes.planner.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.planner.artifact_dir", return_value=tmp_path):
+        specs = plan_paths(state)
+
+    assert len(specs) == 2
+    assert isinstance(specs[0], PathSpec)
+    assert specs[0].name == "event-driven"
+
+
+def test_run_branch_returns_plan(tmp_path):
+    """run_branch() calls planner with focus injected and returns a Plan."""
+    from orchestrator.nodes.planner import run_branch
+    from orchestrator.state import PathSpec
+
+    valid_plan_json = json.dumps({
+        "summary": "Event-driven REST API",
+        "steps": ["Define events", "Wire handlers"],
+        "open_questions": [],
+    })
+    mock_client = _make_client_mock(valid_plan_json)
+    cfg = RunConfig(run_id="test-run", parallel=True)
+    spec = PathSpec(name="event-driven", focus="Use events for decoupling")
+
+    state: GraphState = {
+        "idea": "Build a REST API",
+        "phase": "planning",
+        "revision_count": 0,
+        "advisor_used": False,
+        "plan": None,
+        "sprint_contract": None,
+        "implementation": None,
+        "evaluation": None,
+        "advisor_memo": None,
+        "run_config": cfg,
+    }
+
+    with patch("orchestrator.nodes.planner.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.planner.artifact_dir", return_value=tmp_path):
+        plan = run_branch(state, spec)
+
+    from orchestrator.state import Plan
+    assert isinstance(plan, Plan)
+    assert plan.summary == "Event-driven REST API"
+    # Focus should be injected into the message
+    call_msg = mock_client.run.call_args[0][0]
+    assert "event-driven" in call_msg or "Use events" in call_msg
+
+
+def test_selector_node_picks_best_branch(tmp_path):
+    """selector_node returns the plan from the best-scored branch."""
+    from orchestrator.nodes.evaluator import selector_node
+    from orchestrator.state import Plan, EvaluationResult, BranchResult
+
+    selector_response = json.dumps({"selected": "monolith-first"})
+    mock_client = _make_client_mock(selector_response)
+
+    branches = [
+        BranchResult(
+            name="event-driven",
+            plan=Plan(summary="Event plan", steps=["s1"], open_questions=[]),
+            evaluation=EvaluationResult(verdict="pass", blockers=[], next_actions=[]),
+        ),
+        BranchResult(
+            name="monolith-first",
+            plan=Plan(summary="Monolith plan", steps=["s1", "s2"], open_questions=[]),
+            evaluation=EvaluationResult(verdict="pass", blockers=[], next_actions=[]),
+        ),
+    ]
+    cfg = RunConfig(run_id="test-run", parallel=True)
+    state: GraphState = {
+        "idea": "Build a REST API",
+        "phase": "planning",
+        "revision_count": 0,
+        "advisor_used": False,
+        "plan": None,
+        "sprint_contract": None,
+        "implementation": None,
+        "evaluation": None,
+        "advisor_memo": None,
+        "run_config": cfg,
+        "branches": branches,
+    }
+
+    with patch("orchestrator.nodes.evaluator.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.evaluator.artifact_dir", return_value=tmp_path):
+        result = selector_node(state)
+
+    assert result["plan"].summary == "Monolith plan"
+    assert "branches" in result
