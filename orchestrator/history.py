@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def generate_run_id() -> str:
-    """Return a unique run ID: YYYYMMDD-HHMMSS-{sha6}."""
+    """Return a unique run ID: YYYYMMDD-HHMMSS-{rand6}."""
     ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
     sha6 = uuid.uuid4().hex[:6]
     return f"{ts}-{sha6}"

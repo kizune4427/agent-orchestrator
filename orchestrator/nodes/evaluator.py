@@ -129,11 +129,17 @@ def selector_node(state: GraphState) -> dict:
 
     candidates = []
     for br in branches:
+        steps_text = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(br.plan.steps))
+        open_q_text = (
+            "\n".join(f"  - {q}" for q in br.plan.open_questions)
+            if br.plan.open_questions
+            else "  none"
+        )
         candidates.append(
             f"Name: {br.name}\n"
             f"Summary: {br.plan.summary}\n"
-            f"Steps: {len(br.plan.steps)}\n"
-            f"Evaluation: {br.evaluation.verdict}"
+            f"Steps:\n{steps_text}\n"
+            f"Open questions:\n{open_q_text}"
         )
     message = "Candidates:\n\n" + "\n\n---\n\n".join(candidates)
 
@@ -148,8 +154,14 @@ def selector_node(state: GraphState) -> dict:
 
     selected_branch = next(
         (br for br in branches if br.name == selected_name),
-        branches[0],  # fallback to first if name not found
+        None,
     )
+    if selected_branch is None:
+        valid = [br.name for br in branches]
+        raise ValueError(
+            f"Selector returned unknown branch name {selected_name!r}. "
+            f"Valid names: {valid}. Check selector LLM response."
+        )
 
     # Persist losing branches
     adir = artifact_dir(run_config.run_id)
@@ -164,6 +176,14 @@ def selector_node(state: GraphState) -> dict:
         for br in losers
     ]
     (adir / "branches.json").write_text(json.dumps(branches_log, indent=2))
+
+    # Persist the selected plan
+    plan = selected_branch.plan
+    plan_content = f"# Selected Plan: {selected_branch.name}\n\n**Summary:** {plan.summary}\n\n"
+    plan_content += "## Steps\n\n" + "\n".join(f"{i+1}. {s}" for i, s in enumerate(plan.steps))
+    if plan.open_questions:
+        plan_content += "\n\n## Open Questions\n\n" + "\n".join(f"- {q}" for q in plan.open_questions)
+    (adir / "plan_selected.md").write_text(plan_content)
 
     return {"plan": selected_branch.plan, "branches": branches}
 

@@ -91,49 +91,79 @@ def run(
     }
 
     _auto_approve = run_config.auto_approve
-    final_state: dict = {}
 
-    try:
-        for chunk in graph.stream(initial_state):
-            for node_name, state_delta in chunk.items():
-                print_node_summary(node_name, state_delta)
-                final_state.update(state_delta)
+    while True:
+        final_state: dict = {}
+        restart_requested = False
 
-                if node_name == "planner" and "plan" in state_delta:
-                    plan = state_delta["plan"]
-                    summary = f"Plan: {plan.summary}\nSteps: {len(plan.steps)}"
-                    feedback = checkpoint("plan-review", summary, _auto_approve)
-                    if feedback == "SKIP_ALL":
-                        _auto_approve = True
-                    elif feedback:
-                        final_state["idea"] = final_state.get("idea", idea) + f"\n\nHuman feedback: {feedback}"
+        try:
+            for chunk in graph.stream(initial_state):
+                for node_name, state_delta in chunk.items():
+                    print_node_summary(node_name, state_delta)
+                    final_state.update(state_delta)
 
-                elif node_name == "evaluator" and "sprint_contract" in state_delta:
-                    contract = state_delta["sprint_contract"]
-                    summary = f"Sprint goal: {contract.goal}\nTasks: {len(contract.tasks)}"
-                    feedback = checkpoint("sprint-review", summary, _auto_approve)
-                    if feedback == "SKIP_ALL":
-                        _auto_approve = True
-                    elif feedback:
-                        final_state["idea"] = final_state.get("idea", idea) + f"\n\nHuman feedback: {feedback}"
+                    if node_name == "planner" and "plan" in state_delta:
+                        plan = state_delta["plan"]
+                        summary = f"Plan: {plan.summary}\nSteps: {len(plan.steps)}"
+                        feedback = checkpoint("plan-review", summary, _auto_approve)
+                        if feedback == "SKIP_ALL":
+                            _auto_approve = True
+                        elif feedback:
+                            # Inject feedback into idea and restart from planner
+                            initial_state = {
+                                **initial_state,
+                                "idea": initial_state["idea"] + f"\n\nHuman feedback: {feedback}",
+                                "plan": None,
+                                "sprint_contract": None,
+                                "implementation": None,
+                                "evaluation": None,
+                                "advisor_memo": None,
+                                "revision_count": 0,
+                                "advisor_used": False,
+                            }
+                            restart_requested = True
+                            break
 
-                elif node_name == "generator" and "implementation" in state_delta:
-                    impl = state_delta["implementation"]
-                    summary = "Files written:\n" + "\n".join(f"  • {f}" for f in impl.files_written)
-                    feedback = checkpoint("impl-review", summary, _auto_approve)
-                    if feedback == "SKIP_ALL":
-                        _auto_approve = True
-                    elif feedback:
-                        final_state["idea"] = final_state.get("idea", idea) + f"\n\nHuman feedback: {feedback}"
+                    elif node_name == "evaluator" and "sprint_contract" in state_delta:
+                        contract = state_delta["sprint_contract"]
+                        summary = f"Sprint goal: {contract.goal}\nTasks: {len(contract.tasks)}"
+                        feedback = checkpoint("sprint-review", summary, _auto_approve)
+                        if feedback == "SKIP_ALL":
+                            _auto_approve = True
+                        elif feedback:
+                            typer.echo(
+                                "[checkpoint] Sprint feedback noted. "
+                                "Will apply if workflow restarts."
+                            )
 
-    except SystemExit:
-        typer.echo("\nAborted by user.", err=True)
-        append_run_index(run_id=active_run_id, idea=idea, phase="aborted")
-        raise typer.Exit(code=0)
-    except Exception as exc:
-        typer.echo(f"\nOrchestrator failed with exception: {exc}", err=True)
-        append_run_index(run_id=active_run_id, idea=idea, phase="error")
-        raise typer.Exit(code=1)
+                    elif node_name == "generator" and "implementation" in state_delta:
+                        impl = state_delta["implementation"]
+                        summary = "Files written:\n" + "\n".join(
+                            f"  • {f}" for f in impl.files_written
+                        )
+                        feedback = checkpoint("impl-review", summary, _auto_approve)
+                        if feedback == "SKIP_ALL":
+                            _auto_approve = True
+                        elif feedback:
+                            typer.echo("[checkpoint] Implementation feedback noted.")
+
+                if restart_requested:
+                    break
+
+        except SystemExit:
+            typer.echo("\nAborted by user.", err=True)
+            append_run_index(run_id=active_run_id, idea=idea, phase="aborted")
+            raise typer.Exit(code=0)
+        except Exception as exc:
+            typer.echo(f"\nOrchestrator failed with exception: {exc}", err=True)
+            append_run_index(run_id=active_run_id, idea=idea, phase="error")
+            raise typer.Exit(code=1)
+
+        if restart_requested:
+            typer.echo("\nRestarting from planner with your feedback...\n")
+            continue  # Restart the while loop
+
+        break  # Stream completed normally
 
     phase = final_state.get("phase")
     append_run_index(run_id=active_run_id, idea=idea, phase=phase or "unknown")

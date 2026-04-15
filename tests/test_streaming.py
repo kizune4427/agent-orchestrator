@@ -57,7 +57,6 @@ def test_advisor_summary_shown():
     assert "Root cause found" in output
 
 
-def test_internal_node_prints_nothing_or_status():
+def test_internal_node_prints_nothing():
     output = _capture("mark_done", {"phase": "done"})
-    # Should print nothing (empty or whitespace only)
-    assert output.strip() == "" or "done" in output.lower()
+    assert output.strip() == ""

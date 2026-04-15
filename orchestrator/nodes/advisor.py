@@ -21,9 +21,6 @@ IMPORTANT: Respond ONLY with valid JSON. No prose, no markdown fences.
 }
 """
 
-_MODEL = "claude-opus-4-6"
-
-
 def _build_message(state: GraphState) -> str:
     parts = [f"Original idea: {state['idea']}"]
 

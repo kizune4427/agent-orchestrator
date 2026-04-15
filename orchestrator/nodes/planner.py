@@ -131,8 +131,12 @@ def planner_node(state: GraphState) -> dict:
             )
             for spec, plan in zip(specs, plans)
         ]
-        _persist_plan(plans[0], revision, run_config.run_id)
+        # Don't persist here — selector_node will pick the winning plan.
+        # Pass plans[0] as a placeholder; selector_node overwrites plan.
         return {"plan": plans[0], "revision_count": revision, "branches": branches}
+
+    elif run_config.parallel:
+        print("\n[planner] Revision: running single-branch to revise selected plan")
 
     # Standard single-branch mode
     client = make_client("planner", run_config, _SYSTEM_PROMPT)
