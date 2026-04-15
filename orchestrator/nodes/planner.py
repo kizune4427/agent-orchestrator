@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from pydantic import ValidationError
 
-from orchestrator.agents.client import AgentClient
+from orchestrator.agents.factory import make_client
+from orchestrator.history import artifact_dir
 from orchestrator.state import GraphState, Plan
 
 _SYSTEM_PROMPT = """\
@@ -22,10 +22,6 @@ The JSON must match exactly this schema:
   "open_questions": ["<question 1>"]
 }
 """
-
-_MODEL = "claude-sonnet-4-6"
-
-_ARTIFACTS_DIR = Path(__file__).resolve().parent.parent.parent / "artifacts"
 
 
 def _build_message(state: GraphState) -> str:
@@ -67,9 +63,9 @@ def _parse_plan(text: str) -> Plan:
     return Plan.model_validate(data)
 
 
-def _persist_plan(plan: Plan, revision: int) -> None:
-    artifacts = _ARTIFACTS_DIR
-    artifacts.mkdir(exist_ok=True)
+def _persist_plan(plan: Plan, revision: int, run_id: str) -> None:
+    artifacts = artifact_dir(run_id)
+    artifacts.mkdir(parents=True, exist_ok=True)
     path = artifacts / f"plan_v{revision}.md"
     content = f"# Plan (revision {revision})\n\n**Summary:** {plan.summary}\n\n"
     content += "## Steps\n\n" + "\n".join(f"{i+1}. {s}" for i, s in enumerate(plan.steps))
@@ -81,20 +77,15 @@ def _persist_plan(plan: Plan, revision: int) -> None:
 
 
 def planner_node(state: GraphState) -> dict:
-    client = AgentClient(
-        name="Planner",
-        model=_MODEL,
-        system_prompt=_SYSTEM_PROMPT,
-    )
+    run_config = state["run_config"]
+    client = make_client("planner", run_config, _SYSTEM_PROMPT)
     message = _build_message(state)
     revision = state.get("revision_count", 0) + 1
 
-    # First attempt
     response = client.run(message)
     try:
         plan = _parse_plan(response)
     except (json.JSONDecodeError, ValidationError):
-        # One retry with explicit JSON instruction
         retry_message = (
             message
             + "\n\nIMPORTANT: Your previous response was not valid JSON. "
@@ -106,5 +97,5 @@ def planner_node(state: GraphState) -> dict:
         except (json.JSONDecodeError, ValidationError) as exc:
             raise ValueError(f"Failed to parse planner response after retry: {exc}") from exc
 
-    _persist_plan(plan, revision)
+    _persist_plan(plan, revision, run_config.run_id)
     return {"plan": plan, "revision_count": revision}

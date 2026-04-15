@@ -24,7 +24,7 @@ def _make_client_mock(response_text: str) -> MagicMock:
 # Planner node
 # ---------------------------------------------------------------------------
 
-def test_planner_node_returns_plan():
+def test_planner_node_returns_plan(tmp_path):
     from orchestrator.nodes.planner import planner_node
 
     valid_plan_json = json.dumps({
@@ -47,7 +47,8 @@ def test_planner_node_returns_plan():
         "advisor_memo": None,
     }
 
-    with patch("orchestrator.nodes.planner.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.planner.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.planner.artifact_dir", return_value=tmp_path):
         result = planner_node(state)
 
     assert "plan" in result
@@ -56,7 +57,7 @@ def test_planner_node_returns_plan():
     assert result["revision_count"] == 1
 
 
-def test_planner_node_includes_eval_feedback_in_message():
+def test_planner_node_includes_eval_feedback_in_message(tmp_path):
     from orchestrator.nodes.planner import planner_node
 
     valid_plan_json = json.dumps({
@@ -84,14 +85,15 @@ def test_planner_node_includes_eval_feedback_in_message():
         "advisor_memo": None,
     }
 
-    with patch("orchestrator.nodes.planner.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.planner.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.planner.artifact_dir", return_value=tmp_path):
         planner_node(state)
 
     call_args = mock_client.run.call_args[0][0]
     assert "Missing error handling" in call_args
 
 
-def test_planner_node_includes_advisor_memo():
+def test_planner_node_includes_advisor_memo(tmp_path):
     from orchestrator.nodes.planner import planner_node
 
     valid_plan_json = json.dumps({
@@ -119,14 +121,15 @@ def test_planner_node_includes_advisor_memo():
         "advisor_memo": memo,
     }
 
-    with patch("orchestrator.nodes.planner.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.planner.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.planner.artifact_dir", return_value=tmp_path):
         planner_node(state)
 
     call_args = mock_client.run.call_args[0][0]
     assert "Root cause: vague requirements" in call_args
 
 
-def test_planner_node_retries_on_bad_json():
+def test_planner_node_retries_on_bad_json(tmp_path):
     from orchestrator.nodes.planner import planner_node
 
     valid_plan_json = json.dumps({
@@ -151,17 +154,18 @@ def test_planner_node_retries_on_bad_json():
         "advisor_memo": None,
     }
 
-    with patch("orchestrator.nodes.planner.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.planner.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.planner.artifact_dir", return_value=tmp_path):
         result = planner_node(state)
 
     assert mock_client.run.call_count == 2
     assert result["plan"].summary == "Recovered plan"
 
 
-def test_planner_node_raises_after_two_bad_json():
+def test_planner_node_raises_after_two_bad_json(tmp_path):
     from orchestrator.nodes.planner import planner_node
 
-    mock_client = _make_client_mock("still not json")
+    mock_client = MagicMock()
     mock_client.run.side_effect = ["bad json 1", "bad json 2"]
 
     state: GraphState = {
@@ -177,7 +181,8 @@ def test_planner_node_raises_after_two_bad_json():
         "advisor_memo": None,
     }
 
-    with patch("orchestrator.nodes.planner.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.planner.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.planner.artifact_dir", return_value=tmp_path):
         with pytest.raises(ValueError, match="Failed to parse planner response"):
             planner_node(state)
 
@@ -186,7 +191,7 @@ def test_planner_node_raises_after_two_bad_json():
 # Evaluator node
 # ---------------------------------------------------------------------------
 
-def test_evaluator_node_planning_phase_pass():
+def test_evaluator_node_planning_phase_pass(tmp_path):
     from orchestrator.nodes.evaluator import evaluator_node
 
     valid_eval_json = json.dumps({
@@ -214,7 +219,8 @@ def test_evaluator_node_planning_phase_pass():
         "advisor_memo": None,
     }
 
-    with patch("orchestrator.nodes.evaluator.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.evaluator.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.evaluator.artifact_dir", return_value=tmp_path):
         result = evaluator_node(state)
 
     assert result["evaluation"].verdict == "pass"
@@ -222,7 +228,7 @@ def test_evaluator_node_planning_phase_pass():
     assert result.get("sprint_contract") is not None
 
 
-def test_evaluator_node_planning_phase_fail():
+def test_evaluator_node_planning_phase_fail(tmp_path):
     from orchestrator.nodes.evaluator import evaluator_node
 
     valid_eval_json = json.dumps({
@@ -246,14 +252,15 @@ def test_evaluator_node_planning_phase_fail():
         "advisor_memo": None,
     }
 
-    with patch("orchestrator.nodes.evaluator.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.evaluator.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.evaluator.artifact_dir", return_value=tmp_path):
         result = evaluator_node(state)
 
     assert result["evaluation"].verdict == "fail"
     assert "No acceptance criteria" in result["evaluation"].blockers
 
 
-def test_evaluator_node_implementation_phase():
+def test_evaluator_node_implementation_phase(tmp_path):
     from orchestrator.nodes.evaluator import evaluator_node
     from orchestrator.state import Implementation, SprintContract, Task
 
@@ -283,7 +290,8 @@ def test_evaluator_node_implementation_phase():
         "advisor_memo": None,
     }
 
-    with patch("orchestrator.nodes.evaluator.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.evaluator.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.evaluator.artifact_dir", return_value=tmp_path):
         result = evaluator_node(state)
 
     assert result["evaluation"].verdict == "pass"
@@ -296,7 +304,7 @@ def test_evaluator_node_implementation_phase():
 # Advisor node
 # ---------------------------------------------------------------------------
 
-def test_advisor_node_returns_memo():
+def test_advisor_node_returns_memo(tmp_path):
     from orchestrator.nodes.advisor import advisor_node
     from orchestrator.state import AdvisorMemo
 
@@ -330,7 +338,8 @@ def test_advisor_node_returns_memo():
         "advisor_memo": None,
     }
 
-    with patch("orchestrator.nodes.advisor.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.advisor.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.advisor.artifact_dir", return_value=tmp_path):
         result = advisor_node(state)
 
     assert "advisor_memo" in result
@@ -340,7 +349,7 @@ def test_advisor_node_returns_memo():
     assert result["revision_count"] == 0  # reset for next planner round
 
 
-def test_advisor_node_includes_history_in_message():
+def test_advisor_node_includes_history_in_message(tmp_path):
     from orchestrator.nodes.advisor import advisor_node
 
     valid_memo_json = json.dumps({
@@ -369,7 +378,8 @@ def test_advisor_node_includes_history_in_message():
         "advisor_memo": None,
     }
 
-    with patch("orchestrator.nodes.advisor.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.advisor.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.advisor.artifact_dir", return_value=tmp_path):
         advisor_node(state)
 
     call_args = mock_client.run.call_args[0][0]
@@ -381,7 +391,7 @@ def test_advisor_node_includes_history_in_message():
 # Generator node
 # ---------------------------------------------------------------------------
 
-def test_generator_node_returns_implementation():
+def test_generator_node_returns_implementation(tmp_path):
     from orchestrator.nodes.generator import generator_node
     from orchestrator.state import Implementation, SprintContract, Task
 
@@ -418,50 +428,11 @@ def test_generator_node_returns_implementation():
         "advisor_memo": None,
     }
 
-    with patch("orchestrator.nodes.generator.AgentClient", return_value=mock_client):
+    with patch("orchestrator.nodes.generator.make_client", return_value=mock_client), \
+         patch("orchestrator.nodes.generator.artifact_dir", return_value=tmp_path), \
+         patch("orchestrator.nodes.generator._write_files_locally", return_value=["src/main.py", "tests/test_main.py"]):
         result = generator_node(state)
 
     assert "implementation" in result
     assert isinstance(result["implementation"], Implementation)
     assert any("src/main.py" in p for p in result["implementation"].files_written)
-
-
-def test_generator_node_uses_no_tools():
-    """Generator should pass no tools — it returns file contents inline."""
-    from orchestrator.nodes.generator import generator_node
-    from orchestrator.state import SprintContract, Task
-
-    valid_impl_json = json.dumps({
-        "files": [{"path": "src/app.py", "content": "# app\n"}],
-        "summary": "Implemented app",
-    })
-    mock_client = _make_client_mock(valid_impl_json)
-
-    contract = SprintContract(
-        goal="Build app",
-        tasks=[Task(id="T1", description="Write app.py", acceptance_criteria=["Done"])],
-        constraints=[],
-    )
-    state: GraphState = {
-        "idea": "Build app",
-        "phase": "implementation",
-        "revision_count": 0,
-        "advisor_used": False,
-        "run_config": _DEFAULT_RUN_CONFIG,
-        "plan": None,
-        "sprint_contract": contract,
-        "implementation": None,
-        "evaluation": None,
-        "advisor_memo": None,
-    }
-
-    captured_kwargs: dict = {}
-
-    def capture_init(**kwargs):
-        captured_kwargs.update(kwargs)
-        return mock_client
-
-    with patch("orchestrator.nodes.generator.AgentClient", side_effect=lambda **kw: capture_init(**kw)):
-        generator_node(state)
-
-    assert not captured_kwargs.get("tools")

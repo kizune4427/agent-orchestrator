@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from pydantic import ValidationError
 
-from orchestrator.agents.client import AgentClient
+from orchestrator.agents.factory import make_client
+from orchestrator.history import artifact_dir
 from orchestrator.state import AdvisorMemo, GraphState
 
 _SYSTEM_PROMPT = """\
@@ -22,8 +22,6 @@ IMPORTANT: Respond ONLY with valid JSON. No prose, no markdown fences.
 """
 
 _MODEL = "claude-opus-4-6"
-
-_ARTIFACTS_DIR = Path(__file__).resolve().parent.parent.parent / "artifacts"
 
 
 def _build_message(state: GraphState) -> str:
@@ -68,9 +66,10 @@ def _parse_memo(text: str) -> AdvisorMemo:
     return AdvisorMemo.model_validate(data)
 
 
-def _persist_memo(memo: AdvisorMemo) -> None:
-    _ARTIFACTS_DIR.mkdir(exist_ok=True)
-    path = _ARTIFACTS_DIR / "advisor_memo.md"
+def _persist_memo(memo: AdvisorMemo, run_id: str) -> None:
+    adir = artifact_dir(run_id)
+    adir.mkdir(parents=True, exist_ok=True)
+    path = adir / "advisor_memo.md"
     content = "# Advisor Memo\n\n"
     content += f"## Analysis\n\n{memo.analysis}\n\n"
     content += "## Recommendations\n\n"
@@ -81,19 +80,14 @@ def _persist_memo(memo: AdvisorMemo) -> None:
 
 
 def advisor_node(state: GraphState) -> dict:
-    client = AgentClient(
-        name="Advisor",
-        model=_MODEL,
-        system_prompt=_SYSTEM_PROMPT,
-    )
+    run_config = state["run_config"]
+    client = make_client("advisor", run_config, _SYSTEM_PROMPT)
     message = _build_message(state)
 
-    # First attempt
     response = client.run(message)
     try:
         memo = _parse_memo(response)
     except (json.JSONDecodeError, ValidationError) as exc:
-        # One retry with explicit JSON instruction
         retry_message = message + "\n\nRespond ONLY with the raw JSON object, no other text."
         response = client.run(retry_message)
         try:
@@ -103,5 +97,5 @@ def advisor_node(state: GraphState) -> dict:
                 f"Failed to parse advisor response after retry: {exc2}"
             ) from exc
 
-    _persist_memo(memo)
+    _persist_memo(memo, run_config.run_id)
     return {"advisor_memo": memo, "advisor_used": True, "revision_count": 0}

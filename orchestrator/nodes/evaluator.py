@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from pydantic import ValidationError
 
-from orchestrator.agents.client import AgentClient
+from orchestrator.agents.factory import make_client
+from orchestrator.history import artifact_dir
 from orchestrator.state import EvaluationResult, GraphState, SprintContract, Task
-
-_ARTIFACTS_DIR = Path(__file__).resolve().parent.parent.parent / "artifacts"
 
 _PLANNING_SYSTEM_PROMPT = """\
 You are an evaluation agent reviewing a software development plan.
@@ -42,8 +40,6 @@ IMPORTANT: Respond ONLY with valid JSON. No prose, no markdown fences.
 }
 blockers and next_actions must be empty lists if verdict is "pass".
 """
-
-_MODEL = "claude-sonnet-4-6"
 
 
 def _build_planning_message(state: GraphState) -> str:
@@ -102,13 +98,15 @@ def _parse_eval(text: str) -> EvaluationResult:
     return EvaluationResult.model_validate(data)
 
 
-def _persist_eval(result: EvaluationResult, phase: str, revision: int) -> None:
-    _ARTIFACTS_DIR.mkdir(exist_ok=True)
-    path = _ARTIFACTS_DIR / f"eval_{phase}_v{revision}.json"
+def _persist_eval(result: EvaluationResult, phase: str, revision: int, run_id: str) -> None:
+    adir = artifact_dir(run_id)
+    adir.mkdir(parents=True, exist_ok=True)
+    path = adir / f"eval_{phase}_v{revision}.json"
     path.write_text(result.model_dump_json(indent=2))
 
 
 def evaluator_node(state: GraphState) -> dict:
+    run_config = state["run_config"]
     phase = state["phase"]
     if phase not in ("planning", "implementation"):
         raise ValueError(f"evaluator_node received unexpected phase: {phase!r}")
@@ -119,11 +117,7 @@ def evaluator_node(state: GraphState) -> dict:
         system_prompt = _IMPLEMENTATION_SYSTEM_PROMPT
         message = _build_implementation_message(state)
 
-    client = AgentClient(
-        name="Evaluator",
-        model=_MODEL,
-        system_prompt=system_prompt,
-    )
+    client = make_client("evaluator", run_config, system_prompt)
 
     response = client.run(message)
     try:
@@ -136,10 +130,9 @@ def evaluator_node(state: GraphState) -> dict:
         except (json.JSONDecodeError, ValidationError) as exc2:
             raise ValueError(f"Failed to parse evaluator response after retry: {exc2}") from exc
 
-    _persist_eval(result, phase, state.get("revision_count", 0))
+    _persist_eval(result, phase, state.get("revision_count", 0), run_config.run_id)
 
     updates: dict = {"evaluation": result}
-    # If the plan passed, generate sprint contract
     if phase == "planning" and result.verdict == "pass":
         updates["sprint_contract"] = _build_sprint_contract(state["plan"])
 

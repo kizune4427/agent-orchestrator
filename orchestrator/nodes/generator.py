@@ -3,11 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from orchestrator.agents.client import AgentClient
+from orchestrator.agents.factory import make_client
+from orchestrator.history import artifact_dir
 from orchestrator.state import GraphState, Implementation
-
-_ARTIFACTS_DIR = Path(__file__).resolve().parent.parent.parent / "artifacts"
-_OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "generated"
 
 _SYSTEM_PROMPT = """\
 You are a software implementation agent. Given an approved sprint contract,
@@ -27,8 +25,6 @@ Respond with ONLY this JSON (no prose, no markdown fences):
   "summary": "<one-paragraph summary of what was implemented>"
 }
 """
-
-_MODEL = "claude-sonnet-4-6"
 
 
 def _build_message(state: GraphState) -> str:
@@ -77,21 +73,23 @@ def _parse_response(text: str) -> tuple[list[dict], str]:
     return data["files"], data["summary"]
 
 
-def _write_files_locally(files: list[dict]) -> list[str]:
-    """Write generated files under generated/ and return their absolute paths."""
-    _OUTPUT_DIR.mkdir(exist_ok=True)
+def _write_files_locally(files: list[dict], run_id: str) -> list[str]:
+    """Write generated files under generated/{run_id}/ and return absolute paths."""
+    output_dir = Path(__file__).resolve().parent.parent.parent / "generated" / run_id
+    output_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     for f in files:
-        dest = _OUTPUT_DIR / f["path"]
+        dest = output_dir / f["path"]
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(f["content"])
         written.append(str(dest))
     return written
 
 
-def _persist_implementation(impl: Implementation) -> None:
-    _ARTIFACTS_DIR.mkdir(exist_ok=True)
-    path = _ARTIFACTS_DIR / "implementation.md"
+def _persist_implementation(impl: Implementation, run_id: str) -> None:
+    adir = artifact_dir(run_id)
+    adir.mkdir(parents=True, exist_ok=True)
+    path = adir / "implementation.md"
     content = "# Implementation\n\n"
     content += "## Files Written\n\n"
     content += "\n".join(f"- `{f}`" for f in impl.files_written)
@@ -100,13 +98,8 @@ def _persist_implementation(impl: Implementation) -> None:
 
 
 def generator_node(state: GraphState) -> dict:
-    # No file-write tools — generator returns file contents inline as JSON,
-    # and this node writes them to the local filesystem under generated/.
-    client = AgentClient(
-        name="Generator",
-        model=_MODEL,
-        system_prompt=_SYSTEM_PROMPT,
-    )
+    run_config = state["run_config"]
+    client = make_client("generator", run_config, _SYSTEM_PROMPT)
     message = _build_message(state)
 
     response = client.run(message)
@@ -124,9 +117,9 @@ def generator_node(state: GraphState) -> dict:
                 f"Failed to parse generator response after retry: {exc2}"
             ) from exc
 
-    written_paths = _write_files_locally(files)
+    written_paths = _write_files_locally(files, run_config.run_id)
     impl = Implementation(files_written=written_paths, summary=summary)
-    _persist_implementation(impl)
+    _persist_implementation(impl, run_config.run_id)
     return {
         "implementation": impl,
         "phase": "implementation",
