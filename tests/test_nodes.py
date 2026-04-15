@@ -374,7 +374,10 @@ def test_generator_node_returns_implementation():
     from orchestrator.state import Implementation, SprintContract, Task
 
     valid_impl_json = json.dumps({
-        "files_written": ["src/main.py", "tests/test_main.py"],
+        "files": [
+            {"path": "src/main.py", "content": "# main\n"},
+            {"path": "tests/test_main.py", "content": "# tests\n"},
+        ],
         "summary": "Implemented main module with tests",
     })
     mock_client = _make_client_mock(valid_impl_json)
@@ -407,15 +410,16 @@ def test_generator_node_returns_implementation():
 
     assert "implementation" in result
     assert isinstance(result["implementation"], Implementation)
-    assert "src/main.py" in result["implementation"].files_written
+    assert any("src/main.py" in p for p in result["implementation"].files_written)
 
 
-def test_generator_node_uses_file_write_tools():
-    from orchestrator.nodes.generator import generator_node, _GENERATOR_TOOLS
+def test_generator_node_uses_no_tools():
+    """Generator should pass no tools — it returns file contents inline."""
+    from orchestrator.nodes.generator import generator_node
     from orchestrator.state import SprintContract, Task
 
     valid_impl_json = json.dumps({
-        "files_written": ["src/app.py"],
+        "files": [{"path": "src/app.py", "content": "# app\n"}],
         "summary": "Implemented app",
     })
     mock_client = _make_client_mock(valid_impl_json)
@@ -437,7 +441,7 @@ def test_generator_node_uses_file_write_tools():
         "advisor_memo": None,
     }
 
-    captured_kwargs = {}
+    captured_kwargs: dict = {}
 
     def capture_init(**kwargs):
         captured_kwargs.update(kwargs)
@@ -446,4 +450,4 @@ def test_generator_node_uses_file_write_tools():
     with patch("orchestrator.nodes.generator.AgentClient", side_effect=lambda **kw: capture_init(**kw)):
         generator_node(state)
 
-    assert captured_kwargs.get("tools") == _GENERATOR_TOOLS
+    assert not captured_kwargs.get("tools")

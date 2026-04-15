@@ -208,3 +208,6 @@ __marimo__/
 
 .worktrees/
 artifacts/
+
+generated/*
+!generated/.gitkeep

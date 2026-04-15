@@ -3,41 +3,32 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pydantic import ValidationError
-
 from orchestrator.agents.client import AgentClient
 from orchestrator.state import GraphState, Implementation
 
+_ARTIFACTS_DIR = Path(__file__).resolve().parent.parent.parent / "artifacts"
+_OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "generated"
+
 _SYSTEM_PROMPT = """\
-You are a code generation agent for a software development workflow.
+You are a software implementation agent. Given an approved sprint contract,
+implement all tasks by providing the complete content of each file to create.
 
-Given a sprint contract (goal, tasks, and constraints), write the required
-implementation and test files using the write tool.
+For each task, write clean, well-structured implementation code and a
+corresponding test file.
 
-After you have finished writing all files, respond ONLY with valid JSON.
-No prose, no markdown fences, no explanation. The JSON must match exactly:
+Respond with ONLY this JSON (no prose, no markdown fences):
 {
-  "files_written": ["<path/to/file1>", "<path/to/file2>"],
-  "summary": "<brief description of what was implemented>"
+  "files": [
+    {
+      "path": "<relative file path, e.g. wordcount.py>",
+      "content": "<complete file content as a string>"
+    }
+  ],
+  "summary": "<one-paragraph summary of what was implemented>"
 }
 """
 
 _MODEL = "claude-sonnet-4-6"
-
-_ARTIFACTS_DIR = Path(__file__).resolve().parent.parent.parent / "artifacts"
-
-_GENERATOR_TOOLS = [
-    {
-        "type": "agent_toolset_20260401",
-        "default_config": {"enabled": False},
-        "configs": [
-            {"name": "write", "enabled": True},
-            {"name": "read", "enabled": True},
-            {"name": "edit", "enabled": True},
-            {"name": "glob", "enabled": True},
-        ],
-    }
-]
 
 
 def _build_message(state: GraphState) -> str:
@@ -70,33 +61,37 @@ def _build_message(state: GraphState) -> str:
             )
 
     parts.append(
-        "\nAfter writing all files, respond ONLY with the JSON summary. No other text."
+        "\nProvide complete file contents in the JSON format specified. No other text."
     )
 
     return "\n\n".join(parts)
 
 
-def _parse_implementation(text: str) -> Implementation:
-    # Strip markdown fences if present
+def _parse_response(text: str) -> tuple[list[dict], str]:
+    """Extract (files, summary) from the generator's JSON response."""
     text = text.strip()
     if text.startswith("```"):
         lines = text.splitlines()
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-    # Find the LAST {...} block to skip any preamble prose
-    start = text.rfind("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        text = text[start : end + 1]
-
     data = json.loads(text)
-    return Implementation.model_validate(data)
+    return data["files"], data["summary"]
+
+
+def _write_files_locally(files: list[dict]) -> list[str]:
+    """Write generated files under generated/ and return their absolute paths."""
+    _OUTPUT_DIR.mkdir(exist_ok=True)
+    written: list[str] = []
+    for f in files:
+        dest = _OUTPUT_DIR / f["path"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(f["content"])
+        written.append(str(dest))
+    return written
 
 
 def _persist_implementation(impl: Implementation) -> None:
-    artifacts = _ARTIFACTS_DIR
-    artifacts.mkdir(exist_ok=True)
-    path = artifacts / "implementation.md"
+    _ARTIFACTS_DIR.mkdir(exist_ok=True)
+    path = _ARTIFACTS_DIR / "implementation.md"
     content = "# Implementation\n\n"
     content += "## Files Written\n\n"
     content += "\n".join(f"- `{f}`" for f in impl.files_written)
@@ -105,32 +100,32 @@ def _persist_implementation(impl: Implementation) -> None:
 
 
 def generator_node(state: GraphState) -> dict:
+    # No file-write tools — generator returns file contents inline as JSON,
+    # and this node writes them to the local filesystem under generated/.
     client = AgentClient(
         name="Generator",
         model=_MODEL,
         system_prompt=_SYSTEM_PROMPT,
-        tools=_GENERATOR_TOOLS,
     )
     message = _build_message(state)
 
-    # First attempt
     response = client.run(message)
     try:
-        impl = _parse_implementation(response)
-    except (json.JSONDecodeError, ValidationError):
-        # One retry with explicit JSON instruction
+        files, summary = _parse_response(response)
+    except (json.JSONDecodeError, KeyError) as exc:
         retry_message = (
-            message
-            + "\n\nNow respond ONLY with the JSON summary. No other text."
+            message + "\n\nRespond ONLY with the raw JSON object, no other text."
         )
         response = client.run(retry_message)
         try:
-            impl = _parse_implementation(response)
-        except (json.JSONDecodeError, ValidationError) as exc:
+            files, summary = _parse_response(response)
+        except (json.JSONDecodeError, KeyError) as exc2:
             raise ValueError(
-                f"Failed to parse generator response after retry: {exc}"
+                f"Failed to parse generator response after retry: {exc2}"
             ) from exc
 
+    written_paths = _write_files_locally(files)
+    impl = Implementation(files_written=written_paths, summary=summary)
     _persist_implementation(impl)
     return {
         "implementation": impl,
