@@ -110,6 +110,8 @@ def _persist_eval(result: EvaluationResult, phase: str, revision: int) -> None:
 
 def evaluator_node(state: GraphState) -> dict:
     phase = state["phase"]
+    if phase not in ("planning", "implementation"):
+        raise ValueError(f"evaluator_node received unexpected phase: {phase!r}")
     if phase == "planning":
         system_prompt = _PLANNING_SYSTEM_PROMPT
         message = _build_planning_message(state)
@@ -127,12 +129,12 @@ def evaluator_node(state: GraphState) -> dict:
     try:
         result = _parse_eval(response)
     except (json.JSONDecodeError, ValidationError) as exc:
-        retry = response + "\n\nRespond ONLY with the raw JSON object, no other text."
+        retry = message + "\n\nRespond ONLY with the raw JSON object, no other text."
         response = client.run(retry)
         try:
             result = _parse_eval(response)
         except (json.JSONDecodeError, ValidationError) as exc2:
-            raise ValueError(f"Failed to parse evaluator response after retry: {exc2}") from exc2
+            raise ValueError(f"Failed to parse evaluator response after retry: {exc2}") from exc
 
     _persist_eval(result, phase, state.get("revision_count", 0))
 

@@ -279,3 +279,4 @@ def test_evaluator_node_implementation_phase():
     assert result["evaluation"].verdict == "pass"
     # Phase should not be updated by evaluator — routing handles that
     assert "phase" not in result
+    assert "sprint_contract" not in result
