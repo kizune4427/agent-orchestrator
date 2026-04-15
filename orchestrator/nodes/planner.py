@@ -25,6 +25,8 @@ The JSON must match exactly this schema:
 
 _MODEL = "claude-sonnet-4-6"
 
+_ARTIFACTS_DIR = Path(__file__).resolve().parent.parent.parent / "artifacts"
+
 
 def _build_message(state: GraphState) -> str:
     parts = [f"Idea: {state['idea']}"]
@@ -66,7 +68,7 @@ def _parse_plan(text: str) -> Plan:
 
 
 def _persist_plan(plan: Plan, revision: int) -> None:
-    artifacts = Path("artifacts")
+    artifacts = _ARTIFACTS_DIR
     artifacts.mkdir(exist_ok=True)
     path = artifacts / f"plan_v{revision}.md"
     content = f"# Plan (revision {revision})\n\n**Summary:** {plan.summary}\n\n"
@@ -91,7 +93,7 @@ def planner_node(state: GraphState) -> dict:
     response = client.run(message)
     try:
         plan = _parse_plan(response)
-    except (json.JSONDecodeError, ValidationError, KeyError):
+    except (json.JSONDecodeError, ValidationError):
         # One retry with explicit JSON instruction
         retry_message = (
             message
@@ -101,7 +103,7 @@ def planner_node(state: GraphState) -> dict:
         response = client.run(retry_message)
         try:
             plan = _parse_plan(response)
-        except (json.JSONDecodeError, ValidationError, KeyError) as exc:
+        except (json.JSONDecodeError, ValidationError) as exc:
             raise ValueError(f"Failed to parse planner response after retry: {exc}") from exc
 
     _persist_plan(plan, revision)

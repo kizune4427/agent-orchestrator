@@ -53,7 +53,7 @@ def test_planner_node_returns_plan():
     assert result["revision_count"] == 1
 
 
-def test_planner_node_includes_eval_feedback_on_retry():
+def test_planner_node_includes_eval_feedback_in_message():
     from orchestrator.nodes.planner import planner_node
 
     valid_plan_json = json.dumps({
