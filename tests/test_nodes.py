@@ -280,3 +280,86 @@ def test_evaluator_node_implementation_phase():
     # Phase should not be updated by evaluator — routing handles that
     assert "phase" not in result
     assert "sprint_contract" not in result
+
+
+# ---------------------------------------------------------------------------
+# Advisor node
+# ---------------------------------------------------------------------------
+
+def test_advisor_node_returns_memo():
+    from orchestrator.nodes.advisor import advisor_node
+    from orchestrator.state import AdvisorMemo
+
+    valid_memo_json = json.dumps({
+        "analysis": "The plan lacks concrete file structure",
+        "recommendations": ["Define directory layout", "Specify config format"],
+        "suggested_approach": "Start with a monorepo layout",
+    })
+    mock_client = _make_client_mock(valid_memo_json)
+
+    plan = Plan(
+        summary="Build something vague",
+        steps=["Do stuff", "More stuff"],
+        open_questions=["How?"],
+    )
+    eval_result = EvaluationResult(
+        verdict="fail",
+        blockers=["Too vague"],
+        next_actions=["Be specific"],
+    )
+    state: GraphState = {
+        "idea": "Build a thing",
+        "phase": "planning",
+        "revision_count": 3,
+        "advisor_used": False,
+        "plan": plan,
+        "sprint_contract": None,
+        "implementation": None,
+        "evaluation": eval_result,
+        "advisor_memo": None,
+    }
+
+    with patch("orchestrator.nodes.advisor.AgentClient", return_value=mock_client):
+        result = advisor_node(state)
+
+    assert "advisor_memo" in result
+    assert isinstance(result["advisor_memo"], AdvisorMemo)
+    assert result["advisor_memo"].analysis == "The plan lacks concrete file structure"
+    assert result["advisor_used"] is True
+    assert result["revision_count"] == 0  # reset for next planner round
+
+
+def test_advisor_node_includes_history_in_message():
+    from orchestrator.nodes.advisor import advisor_node
+
+    valid_memo_json = json.dumps({
+        "analysis": "root cause",
+        "recommendations": ["fix it"],
+        "suggested_approach": None,
+    })
+    mock_client = _make_client_mock(valid_memo_json)
+
+    plan = Plan(summary="Plan", steps=["Step 1"], open_questions=[])
+    eval_result = EvaluationResult(
+        verdict="fail",
+        blockers=["Critical blocker"],
+        next_actions=["Fix blocker"],
+    )
+    state: GraphState = {
+        "idea": "Original idea",
+        "phase": "planning",
+        "revision_count": 3,
+        "advisor_used": False,
+        "plan": plan,
+        "sprint_contract": None,
+        "implementation": None,
+        "evaluation": eval_result,
+        "advisor_memo": None,
+    }
+
+    with patch("orchestrator.nodes.advisor.AgentClient", return_value=mock_client):
+        advisor_node(state)
+
+    call_args = mock_client.run.call_args[0][0]
+    assert "Original idea" in call_args
+    assert "Critical blocker" in call_args
