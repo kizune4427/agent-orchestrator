@@ -5,10 +5,12 @@ import uuid
 
 import anthropic
 
+from orchestrator.agents.base import BaseAgentClient
+
 _DEBUG = os.environ.get("ORCHESTRATOR_DEBUG", "").lower() in ("1", "true", "yes")
 
 
-class AgentClient:
+class AgentClient(BaseAgentClient):
     """Thin wrapper around the Anthropic Managed Agents API.
 
     Creates a fresh agent + environment + session per `run()` call.
