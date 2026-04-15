@@ -173,3 +173,109 @@ def test_planner_node_raises_after_two_bad_json():
     with patch("orchestrator.nodes.planner.AgentClient", return_value=mock_client):
         with pytest.raises(ValueError, match="Failed to parse planner response"):
             planner_node(state)
+
+
+# ---------------------------------------------------------------------------
+# Evaluator node
+# ---------------------------------------------------------------------------
+
+def test_evaluator_node_planning_phase_pass():
+    from orchestrator.nodes.evaluator import evaluator_node
+
+    valid_eval_json = json.dumps({
+        "verdict": "pass",
+        "blockers": [],
+        "next_actions": [],
+    })
+    mock_client = _make_client_mock(valid_eval_json)
+
+    plan = Plan(
+        summary="Build a REST API",
+        steps=["Step 1"],
+        open_questions=[],
+    )
+    state: GraphState = {
+        "idea": "Build a REST API",
+        "phase": "planning",
+        "revision_count": 1,
+        "advisor_used": False,
+        "plan": plan,
+        "sprint_contract": None,
+        "implementation": None,
+        "evaluation": None,
+        "advisor_memo": None,
+    }
+
+    with patch("orchestrator.nodes.evaluator.AgentClient", return_value=mock_client):
+        result = evaluator_node(state)
+
+    assert result["evaluation"].verdict == "pass"
+    # When planning passes, evaluator should set sprint_contract
+    assert result.get("sprint_contract") is not None
+
+
+def test_evaluator_node_planning_phase_fail():
+    from orchestrator.nodes.evaluator import evaluator_node
+
+    valid_eval_json = json.dumps({
+        "verdict": "fail",
+        "blockers": ["No acceptance criteria"],
+        "next_actions": ["Add acceptance criteria to each step"],
+    })
+    mock_client = _make_client_mock(valid_eval_json)
+
+    plan = Plan(summary="Vague plan", steps=["Do stuff"], open_questions=[])
+    state: GraphState = {
+        "idea": "Do something",
+        "phase": "planning",
+        "revision_count": 1,
+        "advisor_used": False,
+        "plan": plan,
+        "sprint_contract": None,
+        "implementation": None,
+        "evaluation": None,
+        "advisor_memo": None,
+    }
+
+    with patch("orchestrator.nodes.evaluator.AgentClient", return_value=mock_client):
+        result = evaluator_node(state)
+
+    assert result["evaluation"].verdict == "fail"
+    assert "No acceptance criteria" in result["evaluation"].blockers
+
+
+def test_evaluator_node_implementation_phase():
+    from orchestrator.nodes.evaluator import evaluator_node
+    from orchestrator.state import Implementation, SprintContract, Task
+
+    valid_eval_json = json.dumps({
+        "verdict": "pass",
+        "blockers": [],
+        "next_actions": [],
+    })
+    mock_client = _make_client_mock(valid_eval_json)
+
+    impl = Implementation(files_written=["src/main.py"], summary="Implemented main module")
+    contract = SprintContract(
+        goal="Build main module",
+        tasks=[Task(id="T1", description="Write main.py", acceptance_criteria=["File exists"])],
+        constraints=[],
+    )
+    state: GraphState = {
+        "idea": "Build something",
+        "phase": "implementation",
+        "revision_count": 1,
+        "advisor_used": False,
+        "plan": None,
+        "sprint_contract": contract,
+        "implementation": impl,
+        "evaluation": None,
+        "advisor_memo": None,
+    }
+
+    with patch("orchestrator.nodes.evaluator.AgentClient", return_value=mock_client):
+        result = evaluator_node(state)
+
+    assert result["evaluation"].verdict == "pass"
+    # Phase should not be updated by evaluator — routing handles that
+    assert "phase" not in result
