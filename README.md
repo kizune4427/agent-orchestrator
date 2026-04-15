@@ -30,13 +30,13 @@ cp .env.example .env
 ### 3. Run
 
 ```bash
-python main.py "Build a simple Python CLI that counts words in a file"
+uv run python main.py "Build a simple Python CLI that counts words in a file"
 ```
 
 Optional flag:
 
 ```bash
-python main.py "Your idea here" --max-revisions 5
+uv run python main.py "Your idea here" --max-revisions 5
 ```
 
 ### 4. Check outputs
@@ -77,4 +77,7 @@ uv run pytest -v
 
 # Run a single test file
 uv run pytest tests/test_graph.py -v
+
+# Run the CLI
+uv run python main.py "Your idea here"
 ```
