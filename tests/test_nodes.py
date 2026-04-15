@@ -363,3 +363,87 @@ def test_advisor_node_includes_history_in_message():
     call_args = mock_client.run.call_args[0][0]
     assert "Original idea" in call_args
     assert "Critical blocker" in call_args
+
+
+# ---------------------------------------------------------------------------
+# Generator node
+# ---------------------------------------------------------------------------
+
+def test_generator_node_returns_implementation():
+    from orchestrator.nodes.generator import generator_node
+    from orchestrator.state import Implementation, SprintContract, Task
+
+    valid_impl_json = json.dumps({
+        "files_written": ["src/main.py", "tests/test_main.py"],
+        "summary": "Implemented main module with tests",
+    })
+    mock_client = _make_client_mock(valid_impl_json)
+
+    contract = SprintContract(
+        goal="Build main module",
+        tasks=[
+            Task(
+                id="T1",
+                description="Write main.py",
+                acceptance_criteria=["File exists", "Has main() function"],
+            )
+        ],
+        constraints=["Use stdlib only"],
+    )
+    state: GraphState = {
+        "idea": "Build something",
+        "phase": "implementation",
+        "revision_count": 0,
+        "advisor_used": False,
+        "plan": None,
+        "sprint_contract": contract,
+        "implementation": None,
+        "evaluation": None,
+        "advisor_memo": None,
+    }
+
+    with patch("orchestrator.nodes.generator.AgentClient", return_value=mock_client):
+        result = generator_node(state)
+
+    assert "implementation" in result
+    assert isinstance(result["implementation"], Implementation)
+    assert "src/main.py" in result["implementation"].files_written
+
+
+def test_generator_node_uses_file_write_tools():
+    from orchestrator.nodes.generator import generator_node, _GENERATOR_TOOLS
+    from orchestrator.state import SprintContract, Task
+
+    valid_impl_json = json.dumps({
+        "files_written": ["src/app.py"],
+        "summary": "Implemented app",
+    })
+    mock_client = _make_client_mock(valid_impl_json)
+
+    contract = SprintContract(
+        goal="Build app",
+        tasks=[Task(id="T1", description="Write app.py", acceptance_criteria=["Done"])],
+        constraints=[],
+    )
+    state: GraphState = {
+        "idea": "Build app",
+        "phase": "implementation",
+        "revision_count": 0,
+        "advisor_used": False,
+        "plan": None,
+        "sprint_contract": contract,
+        "implementation": None,
+        "evaluation": None,
+        "advisor_memo": None,
+    }
+
+    captured_kwargs = {}
+
+    def capture_init(**kwargs):
+        captured_kwargs.update(kwargs)
+        return mock_client
+
+    with patch("orchestrator.nodes.generator.AgentClient", side_effect=lambda **kw: capture_init(**kw)):
+        generator_node(state)
+
+    assert captured_kwargs.get("tools") == _GENERATOR_TOOLS
