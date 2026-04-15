@@ -32,6 +32,7 @@ def run(
     generator_model: Optional[str] = typer.Option(None, help="Model for generator role"),
     auto_approve: bool = typer.Option(False, "--auto-approve", help="Skip all HITL checkpoints"),
     parallel: bool = typer.Option(False, "--parallel", help="Enable planner-driven parallel branches"),
+    branches: int = typer.Option(2, "--branches", help="Number of parallel planner branches (requires --parallel)"),
     run_id: Optional[str] = typer.Option(None, "--run-id", help="Resume or reference a prior run"),
     from_node: Optional[str] = typer.Option(None, "--from-node", help="Entry node when using --run-id: planner|evaluator|generator"),
 ) -> None:
@@ -66,14 +67,19 @@ def run(
         generator_model=generator_model,
         auto_approve=auto_approve,
         parallel=parallel,
+        branches=branches,
         from_node=from_node,
     )
 
     graph = build_graph(run_config)
 
+    initial_phase = "planning"
+    if from_node == "generator":
+        initial_phase = "implementation"
+
     initial_state: GraphState = {
         "idea": idea,
-        "phase": "planning",
+        "phase": initial_phase,
         "revision_count": 0,
         "advisor_used": False,
         "plan": None,

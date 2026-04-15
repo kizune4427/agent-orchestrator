@@ -439,17 +439,22 @@ def test_generator_node_returns_implementation(tmp_path):
 
 
 def test_planner_node_returns_path_specs_when_parallel(tmp_path):
-    """When run_config.parallel=True, first call returns PathSpec list."""
+    """When run_config.parallel=True, plan_paths loads from personas.yaml."""
+    import yaml
     from orchestrator.nodes.planner import plan_paths
     from orchestrator.state import PathSpec
 
-    path_specs_json = json.dumps([
-        {"name": "event-driven", "focus": "Use events for decoupling"},
-        {"name": "monolith-first", "focus": "Simple monolith to start"},
-    ])
-    mock_client = _make_client_mock(path_specs_json)
+    personas_data = {
+        "personas": [
+            {"name": "simplicity-first", "focus": "Keep it simple"},
+            {"name": "scalability-first", "focus": "Design for scale"},
+            {"name": "robustness-first", "focus": "Be robust"},
+        ]
+    }
+    personas_file = tmp_path / "personas.yaml"
+    personas_file.write_text(yaml.dump(personas_data))
 
-    cfg = RunConfig(run_id="test-run", parallel=True)
+    cfg = RunConfig(run_id="test-run", parallel=True, branches=2)
     state: GraphState = {
         "idea": "Build a REST API",
         "phase": "planning",
@@ -463,13 +468,37 @@ def test_planner_node_returns_path_specs_when_parallel(tmp_path):
         "run_config": cfg,
     }
 
-    with patch("orchestrator.nodes.planner.make_client", return_value=mock_client), \
-         patch("orchestrator.nodes.planner.artifact_dir", return_value=tmp_path):
-        specs = plan_paths(state)
+    specs = plan_paths(state, personas_path=personas_file)
 
     assert len(specs) == 2
     assert isinstance(specs[0], PathSpec)
-    assert specs[0].name == "event-driven"
+    assert specs[0].name == "simplicity-first"
+    assert specs[1].name == "scalability-first"
+
+
+def test_plan_paths_cycles_when_n_exceeds_personas(tmp_path):
+    """plan_paths cycles through personas when branches > number of defined personas."""
+    import yaml
+    from orchestrator.nodes.planner import plan_paths
+
+    personas_data = {"personas": [
+        {"name": "a", "focus": "focus a"},
+        {"name": "b", "focus": "focus b"},
+    ]}
+    personas_file = tmp_path / "personas.yaml"
+    personas_file.write_text(yaml.dump(personas_data))
+
+    cfg = RunConfig(run_id="test-run", parallel=True, branches=4)
+    state: GraphState = {
+        "idea": "test", "phase": "planning", "revision_count": 0,
+        "advisor_used": False, "plan": None, "sprint_contract": None,
+        "implementation": None, "evaluation": None, "advisor_memo": None,
+        "run_config": cfg,
+    }
+    specs = plan_paths(state, personas_path=personas_file)
+    assert len(specs) == 4
+    assert specs[0].name == "a"
+    assert specs[2].name == "a"  # cycled
 
 
 def test_run_branch_returns_plan(tmp_path):

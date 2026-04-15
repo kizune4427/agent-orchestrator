@@ -96,6 +96,25 @@ def test_graph_has_expected_nodes():
     assert "generator" in node_names
 
 
+def test_build_graph_from_evaluator_entry():
+    """When from_node='evaluator', graph starts at evaluator (not planner)."""
+    from orchestrator.config import RunConfig
+    from orchestrator.graph import build_graph
+    cfg = RunConfig(run_id="test", from_node="evaluator")
+    graph = build_graph(cfg)
+    # Verify graph compiles without error and has evaluator as reachable node
+    assert graph is not None
+
+
+def test_build_graph_from_generator_entry():
+    """When from_node='generator', graph starts at generator."""
+    from orchestrator.config import RunConfig
+    from orchestrator.graph import build_graph
+    cfg = RunConfig(run_id="test", from_node="generator")
+    graph = build_graph(cfg)
+    assert graph is not None
+
+
 # ---------------------------------------------------------------------------
 # End-to-end smoke tests (mocked nodes)
 # ---------------------------------------------------------------------------

@@ -1,0 +1,9 @@
+personas:
+  - name: simplicity-first
+    focus: Minimize complexity; prefer simple, readable, well-understood patterns over clever solutions
+  - name: scalability-first
+    focus: Design for growth; use patterns that handle 10x load without major rework
+  - name: robustness-first
+    focus: Prioritize error handling, fault tolerance, and graceful degradation
+  - name: speed-of-delivery
+    focus: Maximize delivery velocity; prefer existing libraries and frameworks over custom code

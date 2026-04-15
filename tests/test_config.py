@@ -41,3 +41,18 @@ def test_run_config_from_env_defaults(monkeypatch):
     cfg = RunConfig.from_env(run_id="test-id")
     assert cfg.backend == "anthropic"
     assert cfg.planner_model == "claude-sonnet-4-6"
+
+
+def test_run_config_branches_default():
+    cfg = RunConfig(run_id="test")
+    assert cfg.branches == 2
+
+
+def test_run_config_branches_custom():
+    cfg = RunConfig(run_id="test", branches=3)
+    assert cfg.branches == 3
+
+
+def test_run_config_from_env_branches():
+    cfg = RunConfig.from_env(run_id="test", branches=4)
+    assert cfg.branches == 4

@@ -58,7 +58,13 @@ def build_graph(run_config: RunConfig | None = None):
     builder.add_node("mark_done", _mark_done)
     builder.add_node("mark_failed", _mark_failed)
 
-    if run_config and run_config.parallel:
+    from_node_val = run_config.from_node if run_config else None
+    parallel = run_config.parallel if run_config else False
+
+    if from_node_val in ("evaluator", "generator"):
+        # Resume from mid-graph: skip planner entirely
+        builder.set_entry_point(from_node_val)
+    elif parallel:
         builder.add_node("selector", selector_node)
         builder.set_entry_point("planner")
         builder.add_edge("planner", "selector")

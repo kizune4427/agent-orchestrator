@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
+from pathlib import Path
 
+import yaml
 from pydantic import ValidationError
 
 from orchestrator.agents.factory import make_client
@@ -77,31 +80,17 @@ def _persist_plan(plan: Plan, revision: int, run_id: str) -> None:
     path.write_text(content)
 
 
-_PATH_DECIDER_PROMPT = """\
-You are a planning strategist. Given a software idea, identify 2-4 distinct implementation
-paths worth exploring. Each path should represent a meaningfully different architectural or
-design direction.
-
-IMPORTANT: Respond ONLY with valid JSON — a list of path specs:
-[
-  {"name": "<short name>", "focus": "<one sentence describing this path's key angle>"},
-  ...
-]
-"""
-
-
-def plan_paths(state: GraphState) -> list[PathSpec]:
-    """Stage 1: Ask the planner to enumerate exploration paths. Returns PathSpec list."""
+def plan_paths(state: GraphState, *, personas_path: Path | None = None) -> list[PathSpec]:
+    """Load personas from personas.yaml and return the first N as PathSpec list."""
     run_config = state["run_config"]
-    client = make_client("planner", run_config, _PATH_DECIDER_PROMPT)
-    message = f"Idea: {state['idea']}"
-    response = client.run(message)
-    text = response.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    data = json.loads(text)
-    return [PathSpec.model_validate(item) for item in data]
+    n = run_config.branches
+    if personas_path is None:
+        personas_path = Path(__file__).resolve().parent.parent.parent / "personas.yaml"
+    with personas_path.open() as f:
+        data = yaml.safe_load(f)
+    all_personas = [PathSpec(name=p["name"], focus=p["focus"]) for p in data["personas"]]
+    specs = list(itertools.islice(itertools.cycle(all_personas), n))
+    return specs
 
 
 def run_branch(state: GraphState, spec: PathSpec) -> "Plan":

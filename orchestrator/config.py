@@ -17,6 +17,7 @@ class RunConfig(BaseModel):
     generator_model: str = "claude-sonnet-4-6"
     auto_approve: bool = False
     parallel: bool = False
+    branches: int = 2
     from_node: Optional[Literal["planner", "evaluator", "generator"]] = None
 
     @classmethod
@@ -31,6 +32,7 @@ class RunConfig(BaseModel):
         generator_model: Optional[str] = None,
         auto_approve: bool = False,
         parallel: bool = False,
+        branches: int = 2,
         from_node: Optional[Literal["planner", "evaluator", "generator"]] = None,
     ) -> "RunConfig":
         return cls(
@@ -42,5 +44,6 @@ class RunConfig(BaseModel):
             generator_model=generator_model or os.environ.get("GENERATOR_MODEL", "claude-sonnet-4-6"),
             auto_approve=auto_approve,
             parallel=parallel,
+            branches=branches,
             from_node=from_node,
         )
