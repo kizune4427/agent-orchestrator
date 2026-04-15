@@ -47,11 +47,10 @@ the native Anthropic API.
 - When `openrouter`, use the OpenRouter-compatible endpoint with the `openai` Python
   client (or `httpx` directly); model strings follow OpenRouter convention
   (e.g. `openai/gpt-4o`, `meta-llama/llama-3-70b-instruct`)
-- Per-role overrides via env vars: `PLANNER_MODEL`, `EVALUATOR_MODEL`,
-  `ADVISOR_MODEL`, `GENERATOR_MODEL`
 - `AgentClient` gains a `backend` param; internal dispatch picks Anthropic Managed
   Agents or OpenRouter accordingly
-- Expose `--planner-model`, `--evaluator-model` etc. as CLI flags in `main.py`
+- Expose `--planner-model`, `--evaluator-model`, `--advisor-model`,
+  `--generator-model` as CLI flags in `main.py` for per-run overrides
 - Do **not** use OpenRouter for v1 (Phase 1 constraint — now lifted for Phase 2)
 
 ### 2.2 Streaming output
@@ -99,23 +98,25 @@ prompt. Example personas for N=3:
 
 Personas are defined in config (e.g. `personas.yaml`) so users can customise them.
 
-**Arbiter pattern:**
+**Selection — evaluator as selector:**
 
 - All branches run their full planner → evaluator loop independently (in parallel
   via `asyncio`)
-- After all branches complete (or time out), an **Arbiter** node (Opus) receives all
-  N `(plan, evaluation)` pairs and selects the winner based on: verdict, fewest
-  blockers, best fit for the original idea
-- If ≥1 branch passes evaluation, the arbiter picks the strongest passing plan
-- If no branch passes, the arbiter synthesises the best elements and hands back to
-  the planner as advisor-style guidance
-- The winning branch's sprint contract is handed to the generator
+- After all branches settle, the **Evaluator** is called once more in "selector mode"
+  with all N `(plan, evaluation)` pairs; it returns the index of the strongest
+  candidate based on verdict, fewest blockers, and fit to the original idea
+- If only 1 branch produced a result, skip the selector call and use it directly
+- If ≥1 branch passed evaluation, the selector picks the strongest passing plan
+- If no branch passed, the selector picks the least-failing plan and feeds it back
+  to the planner as advisor-style guidance for the next revision
+- The winning plan's sprint contract is handed to the generator
+- No new agent role is introduced — the evaluator handles selection via a different
+  system prompt in selector mode
 
-**Open questions:**
-- Default N (start with 3; make it a `--branches` CLI flag)
-- Whether the arbiter synthesises a new plan or selects one as-is
-- Cost/latency tradeoff — N branches × evaluation rounds can be expensive; add a
-  `--parallel` flag to opt in (sequential is default)
+**Flags:**
+- `--branches N` — number of parallel branches (default: 2; minimum: 1)
+- `--parallel` — opt-in flag to enable parallel execution (sequential is default,
+  so single-branch runs are unaffected)
 
 ### 2.5 Human-in-the-loop approvals
 
