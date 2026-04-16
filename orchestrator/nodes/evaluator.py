@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from pydantic import ValidationError
 
@@ -91,9 +92,23 @@ def _build_sprint_contract(plan) -> SprintContract:
 
 def _parse_eval(text: str) -> EvaluationResult:
     text = text.strip()
+
+    # Strip markdown code fences
     if text.startswith("```"):
         lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        inner = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
+        if inner:
+            text = inner
+
+    # Fallback: extract first {...} block in case of surrounding prose
+    if not text.startswith("{"):
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            text = match.group(0)
+
+    if not text:
+        raise ValueError("Evaluator returned empty content after parsing")
+
     data = json.loads(text)
     return EvaluationResult.model_validate(data)
 
@@ -205,13 +220,17 @@ def evaluator_node(state: GraphState) -> dict:
     response = client.run(message)
     try:
         result = _parse_eval(response)
-    except (json.JSONDecodeError, ValidationError) as exc:
+    except (json.JSONDecodeError, ValidationError, ValueError) as exc:
         retry = message + "\n\nRespond ONLY with the raw JSON object, no other text."
-        response = client.run(retry)
+        response2 = client.run(retry)
         try:
-            result = _parse_eval(response)
-        except (json.JSONDecodeError, ValidationError) as exc2:
-            raise ValueError(f"Failed to parse evaluator response after retry: {exc2}") from exc
+            result = _parse_eval(response2)
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc2:
+            raise ValueError(
+                f"Failed to parse evaluator response after retry: {exc2}\n"
+                f"  Initial response ({len(response)} chars): {response[:300]!r}\n"
+                f"  Retry response  ({len(response2)} chars): {response2[:300]!r}"
+            ) from exc
 
     _persist_eval(result, phase, state.get("revision_count", 0), run_config.run_id)
 

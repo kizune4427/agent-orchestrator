@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from orchestrator.agents.factory import make_client
@@ -66,9 +67,18 @@ def _build_message(state: GraphState) -> str:
 def _parse_response(text: str) -> tuple[list[dict], str]:
     """Extract (files, summary) from the generator's JSON response."""
     text = text.strip()
+
     if text.startswith("```"):
         lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        inner = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
+        if inner:
+            text = inner
+
+    if not text.startswith("{"):
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            text = match.group(0)
+
     data = json.loads(text)
     return data["files"], data["summary"]
 
@@ -102,19 +112,28 @@ def generator_node(state: GraphState) -> dict:
     client = make_client("generator", run_config, _SYSTEM_PROMPT)
     message = _build_message(state)
 
+    revision = state.get("revision_count", 0)
+    if revision > 0:
+        print(f"\n⚙  Generator running (revision {revision + 1})...", flush=True)
+    else:
+        print("\n⚙  Generator running — implementing sprint...", flush=True)
+
     response = client.run(message)
     try:
         files, summary = _parse_response(response)
-    except (json.JSONDecodeError, KeyError) as exc:
+    except (json.JSONDecodeError, KeyError, ValueError) as exc:
+        print("  ↻ Parse failed, retrying with stricter prompt...", flush=True)
         retry_message = (
             message + "\n\nRespond ONLY with the raw JSON object, no other text."
         )
-        response = client.run(retry_message)
+        response2 = client.run(retry_message)
         try:
-            files, summary = _parse_response(response)
-        except (json.JSONDecodeError, KeyError) as exc2:
+            files, summary = _parse_response(response2)
+        except (json.JSONDecodeError, KeyError, ValueError) as exc2:
             raise ValueError(
-                f"Failed to parse generator response after retry: {exc2}"
+                f"Failed to parse generator response after retry: {exc2}\n"
+                f"  Initial response ({len(response)} chars): {response[:300]!r}\n"
+                f"  Retry response  ({len(response2)} chars): {response2[:300]!r}"
             ) from exc
 
     written_paths = _write_files_locally(files, run_config.run_id)
