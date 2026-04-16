@@ -22,6 +22,15 @@ class OpenRouterClient(BaseAgentClient):
             raise RuntimeError(
                 "OPENROUTER_API_KEY environment variable is not set."
             )
+        if "/" not in self.model:
+            raise ValueError(
+                f"OpenRouter model {self.model!r} looks wrong — "
+                "expected provider-prefixed format like 'anthropic/claude-sonnet-4.6' or "
+                "'openai/gpt-4o'. "
+                "Unprefixed names (e.g. 'claude-sonnet-4-6') are Anthropic SDK IDs "
+                "and will be rejected by OpenRouter."
+            )
+
         response = httpx.post(
             _OPENROUTER_URL,
             headers={
@@ -37,7 +46,23 @@ class OpenRouterClient(BaseAgentClient):
             },
             timeout=120.0,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            try:
+                detail = response.json()
+            except ValueError:
+                detail = response.text
+            hint = ""
+            if response.status_code == 400:
+                hint = (
+                    f" Check that {self.model!r} is a valid OpenRouter model ID "
+                    "(see https://openrouter.ai/models)."
+                )
+            raise RuntimeError(
+                f"OpenRouter request failed HTTP {response.status_code} "
+                f"for model {self.model!r}: {detail}{hint}"
+            ) from exc
         text = response.json()["choices"][0]["message"]["content"]
         if not text:
             raise RuntimeError(

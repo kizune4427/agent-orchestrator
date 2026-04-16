@@ -35,13 +35,25 @@ class RunConfig(BaseModel):
         branches: int = 2,
         from_node: Optional[Literal["planner", "evaluator", "generator"]] = None,
     ) -> "RunConfig":
+        resolved_backend = backend or os.environ.get("LLM_BACKEND", "anthropic")
+
+        # Default model IDs differ by backend — OpenRouter requires provider-prefixed
+        # dot-version IDs (e.g. 'anthropic/claude-sonnet-4.6'), while the Anthropic
+        # SDK uses dash-version IDs (e.g. 'claude-sonnet-4-6').
+        if resolved_backend == "openrouter":
+            _default_sonnet = "anthropic/claude-sonnet-4.6"
+            _default_opus = "anthropic/claude-opus-4.6"
+        else:
+            _default_sonnet = "claude-sonnet-4-6"
+            _default_opus = "claude-opus-4-6"
+
         return cls(
             run_id=run_id,
-            backend=backend or os.environ.get("LLM_BACKEND", "anthropic"),
-            planner_model=planner_model or os.environ.get("PLANNER_MODEL", "claude-sonnet-4-6"),
-            evaluator_model=evaluator_model or os.environ.get("EVALUATOR_MODEL", "claude-sonnet-4-6"),
-            advisor_model=advisor_model or os.environ.get("ADVISOR_MODEL", "claude-opus-4-6"),
-            generator_model=generator_model or os.environ.get("GENERATOR_MODEL", "claude-sonnet-4-6"),
+            backend=resolved_backend,
+            planner_model=planner_model or os.environ.get("PLANNER_MODEL", _default_sonnet),
+            evaluator_model=evaluator_model or os.environ.get("EVALUATOR_MODEL", _default_sonnet),
+            advisor_model=advisor_model or os.environ.get("ADVISOR_MODEL", _default_opus),
+            generator_model=generator_model or os.environ.get("GENERATOR_MODEL", _default_sonnet),
             auto_approve=auto_approve,
             parallel=parallel,
             branches=branches,

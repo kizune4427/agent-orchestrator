@@ -43,6 +43,35 @@ def test_run_config_from_env_defaults(monkeypatch):
     assert cfg.planner_model == "claude-sonnet-4-6"
 
 
+def test_run_config_from_env_openrouter_defaults(monkeypatch):
+    """Unspecified models fall back to provider-prefixed OR IDs, not Anthropic SDK names."""
+    for key in ("PLANNER_MODEL", "EVALUATOR_MODEL", "ADVISOR_MODEL", "GENERATOR_MODEL"):
+        monkeypatch.delenv(key, raising=False)
+    cfg = RunConfig.from_env(run_id="test-id", backend="openrouter")
+    assert cfg.backend == "openrouter"
+    assert cfg.planner_model == "anthropic/claude-sonnet-4.6"
+    assert cfg.evaluator_model == "anthropic/claude-sonnet-4.6"
+    assert cfg.advisor_model == "anthropic/claude-opus-4.6"
+    assert cfg.generator_model == "anthropic/claude-sonnet-4.6"
+
+
+def test_run_config_from_env_openrouter_partial_override(monkeypatch):
+    """Specified models kept; unspecified roles get OR-formatted defaults."""
+    for key in ("PLANNER_MODEL", "EVALUATOR_MODEL", "ADVISOR_MODEL", "GENERATOR_MODEL"):
+        monkeypatch.delenv(key, raising=False)
+    cfg = RunConfig.from_env(
+        run_id="test-id",
+        backend="openrouter",
+        planner_model="openai/gpt-4o",
+        generator_model="openai/gpt-4o",
+    )
+    assert cfg.planner_model == "openai/gpt-4o"
+    assert cfg.generator_model == "openai/gpt-4o"
+    # evaluator and advisor fall back to OR-formatted defaults, not Anthropic SDK names
+    assert "/" in cfg.evaluator_model
+    assert "/" in cfg.advisor_model
+
+
 def test_run_config_branches_default():
     cfg = RunConfig(run_id="test")
     assert cfg.branches == 2
