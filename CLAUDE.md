@@ -8,22 +8,40 @@ Local-first agentic workflow: idea → plan → implementation, with evaluator-g
 
 Python 3.11, uv, LangGraph, Anthropic Managed Agents API, Pydantic v2, Typer
 
-## Current state
+## Run
 
-Phases 1 and 2 complete. Run: `uv run python main.py "idea"` — `ORCHESTRATOR_DEBUG=1` for tracing.
+```bash
+uv run python main.py "idea"               # default: Anthropic backend
+uv run python main.py "idea" --backend openrouter \
+  --planner-model openai/gpt-4o \
+  --generator-model anthropic/claude-sonnet-4.6
+ORCHESTRATOR_DEBUG=1 uv run python main.py "idea"   # full event tracing
+```
 
-**Graph:** planner → evaluator → (advisor on 3× fail) → generator. With `--parallel`: planner spawns N branches (personas from `personas.yaml`), selector picks the strongest before evaluation.
+OpenRouter model IDs: `provider/name-version` with dots, e.g. `anthropic/claude-sonnet-4.6`. Unprefixed Anthropic SDK names (`claude-sonnet-4-6`) are rejected at startup. Unspecified roles fall back to backend-appropriate defaults automatically.
 
-**Key files:**
-- `orchestrator/config.py` — `RunConfig` (frozen Pydantic; all CLI flags live here)
-- `orchestrator/agents/factory.py` — `make_client(role, config, prompt)` dispatches to `AgentClient` or `OpenRouterClient`
-- `orchestrator/history.py` — run ID generation, `artifact_dir`, `runs.jsonl` append
-- `orchestrator/nodes/` — planner, evaluator (+ selector), advisor, generator
-- `orchestrator/graph.py` — `build_graph(run_config)` wires nodes; entry point shifts on `from_node`
-- `orchestrator/streaming.py` — `print_node_summary()` for progressive output
-- `orchestrator/checkpoint.py` — HITL `checkpoint()` with approve/feedback/skip/abort
-- `personas.yaml` — parallel branch personas (simplicity, scalability, robustness, speed)
-- `artifacts/{run_id}/` — per-run artifacts; `artifacts/runs.jsonl` — append-only run index
+## Graph
+
+`planner → evaluator → (advisor on 3× fail) → generator → evaluator → done`
+
+With `--parallel`: planner spawns N branches (personas from `personas.yaml`), selector LLM-picks the strongest, then normal eval loop.
+
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `orchestrator/config.py` | `RunConfig` — frozen Pydantic, all CLI flags; `from_env()` picks backend-correct default models |
+| `orchestrator/agents/factory.py` | `make_client(role, config, prompt)` → `AgentClient` or `OpenRouterClient` |
+| `orchestrator/agents/openrouter.py` | OpenRouter HTTP client; validates model prefix, surfaces 400 body |
+| `orchestrator/nodes/evaluator.py` | Evaluator + selector; robust JSON parse (fence-strip + regex fallback) |
+| `orchestrator/nodes/generator.py` | Generator; prints live status before LLM call; same robust JSON parse |
+| `orchestrator/graph.py` | `build_graph(run_config)` — wires nodes, shifts entry on `from_node` |
+| `orchestrator/streaming.py` | `print_node_summary()` — post-node formatted output |
+| `orchestrator/checkpoint.py` | HITL `checkpoint()` — approve / feedback / skip-all / abort |
+| `orchestrator/history.py` | Run ID generation, `artifact_dir`, `runs.jsonl` append |
+| `personas.yaml` | Parallel branch personas (simplicity, scalability, robustness, speed) |
+
+Artifacts: `artifacts/{run_id}/` per run; `artifacts/runs.jsonl` append-only index.
 
 ## Constraints
 

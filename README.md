@@ -10,7 +10,8 @@ Turns a user idea into an implemented sprint via an evaluator-gated revision loo
 
 - Python 3.11
 - [uv](https://docs.astral.sh/uv/) — `pip install uv`
-- An [Anthropic API key](https://console.anthropic.com/)
+- An [Anthropic API key](https://console.anthropic.com/) — required for `--backend anthropic` (default)
+- An [OpenRouter API key](https://openrouter.ai/keys) — required for `--backend openrouter`
 
 ### 1. Clone and install
 
@@ -25,7 +26,12 @@ uv sync --extra dev
 ```bash
 cp .env.example .env
 # Edit .env and set ANTHROPIC_API_KEY=your_key_here
+
+# If using --backend openrouter, also set:
+# OPENROUTER_API_KEY=sk-or-...
 ```
+
+> **OpenRouter model IDs** use provider-prefixed dot-version format, e.g. `anthropic/claude-sonnet-4.6` or `openai/gpt-4o`. Anthropic SDK names like `claude-sonnet-4-6` will be rejected.
 
 ### 3. Run
 
@@ -69,7 +75,7 @@ uv run python main.py "Build a REST API" --auto-approve
 uv run python main.py "Build a REST API" \
   --backend openrouter \
   --planner-model openai/gpt-4o \
-  --generator-model anthropic/claude-opus-4-6
+  --generator-model anthropic/claude-opus-4.6
 
 # Run 3 parallel branches and let the evaluator pick the best plan
 uv run python main.py "Build a REST API" --parallel --branches 3
