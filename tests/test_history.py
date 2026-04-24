@@ -52,3 +52,30 @@ def test_append_run_index_appends(tmp_path):
     assert len(lines) == 2
     assert json.loads(lines[0])["run_id"] == "id1"
     assert json.loads(lines[1])["run_id"] == "id2"
+
+
+def test_append_run_index_error_fields(tmp_path):
+    index_path = tmp_path / "runs.jsonl"
+    append_run_index(
+        index_path=index_path,
+        run_id="id_err",
+        idea="boom",
+        phase="error",
+        error_type="ValueError",
+        error_message="Failed to parse evaluator response",
+        last_phase_reached="evaluator",
+    )
+    entry = json.loads(index_path.read_text().splitlines()[0])
+    assert entry["phase"] == "error"
+    assert entry["error_type"] == "ValueError"
+    assert entry["error_message"] == "Failed to parse evaluator response"
+    assert entry["last_phase_reached"] == "evaluator"
+
+
+def test_append_run_index_omits_error_fields_when_none(tmp_path):
+    index_path = tmp_path / "runs.jsonl"
+    append_run_index(index_path=index_path, run_id="id_ok", idea="ok", phase="done")
+    entry = json.loads(index_path.read_text().splitlines()[0])
+    assert "error_type" not in entry
+    assert "error_message" not in entry
+    assert "last_phase_reached" not in entry

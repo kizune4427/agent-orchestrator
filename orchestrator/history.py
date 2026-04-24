@@ -26,16 +26,29 @@ def append_run_index(
     idea: str,
     phase: str,
     index_path: Path | None = None,
+    error_type: str | None = None,
+    error_message: str | None = None,
+    last_phase_reached: str | None = None,
 ) -> None:
-    """Append a single JSON line to runs.jsonl."""
+    """Append a single JSON line to runs.jsonl.
+
+    When phase == "error", pass error_type / error_message / last_phase_reached
+    so failed runs can be diagnosed without digging through stderr.
+    """
     if index_path is None:
         index_path = Path(__file__).resolve().parent.parent / "artifacts" / "runs.jsonl"
     index_path.parent.mkdir(parents=True, exist_ok=True)
-    entry = {
+    entry: dict = {
         "run_id": run_id,
         "idea": idea,
         "phase": phase,
         "timestamp": datetime.now(tz=timezone.utc).isoformat(),
     }
+    if error_type is not None:
+        entry["error_type"] = error_type
+    if error_message is not None:
+        entry["error_message"] = error_message
+    if last_phase_reached is not None:
+        entry["last_phase_reached"] = last_phase_reached
     with index_path.open("a") as f:
         f.write(json.dumps(entry) + "\n")

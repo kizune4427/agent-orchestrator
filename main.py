@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import sys
+import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -39,7 +40,7 @@ def run(
     """Turn an idea into an implemented sprint via LangGraph + Claude."""
     from orchestrator.config import RunConfig
     from orchestrator.graph import build_graph
-    from orchestrator.history import append_run_index, generate_run_id
+    from orchestrator.history import append_run_index, artifact_dir, generate_run_id
     from orchestrator.state import GraphState
     from orchestrator.streaming import print_node_summary
     from orchestrator.checkpoint import checkpoint
@@ -95,10 +96,12 @@ def run(
     while True:
         final_state: dict = {}
         restart_requested = False
+        last_node_reached: Optional[str] = None
 
         try:
             for chunk in graph.stream(initial_state):
                 for node_name, state_delta in chunk.items():
+                    last_node_reached = node_name
                     print_node_summary(node_name, state_delta)
                     final_state.update(state_delta)
 
@@ -155,8 +158,34 @@ def run(
             append_run_index(run_id=active_run_id, idea=idea, phase="aborted")
             raise typer.Exit(code=0)
         except Exception as exc:
-            typer.echo(f"\nOrchestrator failed with exception: {exc}", err=True)
-            append_run_index(run_id=active_run_id, idea=idea, phase="error")
+            err_type = type(exc).__name__
+            err_msg = str(exc)
+            typer.echo(f"\nOrchestrator failed with {err_type}: {err_msg}", err=True)
+
+            # Dump full traceback to artifacts/{run_id}/error.log
+            adir = artifact_dir(active_run_id)
+            adir.mkdir(parents=True, exist_ok=True)
+            tb = traceback.format_exc()
+            log_body = (
+                f"Run ID: {active_run_id}\n"
+                f"Idea: {idea}\n"
+                f"Last node reached: {last_node_reached}\n"
+                f"Phase at crash: {final_state.get('phase') or initial_state.get('phase')}\n"
+                f"Revision count: {final_state.get('revision_count', 0)}\n"
+                f"Advisor used: {final_state.get('advisor_used', False)}\n"
+                f"\n--- Traceback ---\n{tb}"
+            )
+            (adir / "error.log").write_text(log_body)
+            typer.echo(f"Error details written to {adir / 'error.log'}", err=True)
+
+            append_run_index(
+                run_id=active_run_id,
+                idea=idea,
+                phase="error",
+                error_type=err_type,
+                error_message=err_msg[:500],
+                last_phase_reached=last_node_reached,
+            )
             raise typer.Exit(code=1)
 
         if restart_requested:
